@@ -1,6 +1,71 @@
 import { prisma } from '@/lib/db'
 import { randomUUID } from 'crypto'
 import type { VisaType } from '@prisma/client'
+import { SEED_VISA_TEMPLATES } from '@/lib/visa-template-seed-data'
+
+export type ResolvedTemplateItem = {
+  id: string
+  category: string
+  documentKey: string
+  documentName: string
+  instructions: string | null
+  defaultRequired: boolean
+  allowsMultipleFiles: boolean
+  sortOrder: number
+}
+
+/** Seed rows have no DB id; callers must not store this as a templateItemId. */
+export const SEED_TEMPLATE_ITEM_PREFIX = 'seed:'
+
+export function seedTemplateFor(visaTypeCode: string) {
+  const seed = SEED_VISA_TEMPLATES.find((t) => t.visaTypeCode === visaTypeCode) ??
+    SEED_VISA_TEMPLATES.find((t) => t.visaTypeCode === 'OTHER')
+  if (!seed) return null
+  return {
+    id: null as string | null,
+    visaTypeCode,
+    templateName: seed.name,
+    version: 0,
+    items: seed.items.map<ResolvedTemplateItem>((item) => ({
+      id: `${SEED_TEMPLATE_ITEM_PREFIX}${item.documentKey}`,
+      category: item.category,
+      documentKey: item.documentKey,
+      documentName: item.documentName,
+      instructions: item.instructions ?? null,
+      defaultRequired: Boolean(item.defaultRequired),
+      allowsMultipleFiles: true,
+      sortOrder: item.sortOrder,
+    })),
+  }
+}
+
+/**
+ * The one visa document list used by Overview, Documents and Request Documents:
+ * the active admin-edited template, or the built-in starting list if none exists yet.
+ */
+export async function resolveVisaTemplate(visaType: VisaType | string) {
+  const code = String(visaType)
+  const active = await getActiveVisaTemplate(code)
+  if (active && active.items.length) {
+    return {
+      id: active.id as string | null,
+      visaTypeCode: code,
+      templateName: active.templateName,
+      version: active.version,
+      items: active.items.map<ResolvedTemplateItem>((item) => ({
+        id: item.id,
+        category: item.category,
+        documentKey: item.documentKey,
+        documentName: item.documentName,
+        instructions: item.instructions,
+        defaultRequired: item.defaultRequired,
+        allowsMultipleFiles: item.allowsMultipleFiles,
+        sortOrder: item.sortOrder,
+      })),
+    }
+  }
+  return seedTemplateFor(code)
+}
 
 export async function getActiveVisaTemplate(visaTypeCode: string) {
   return prisma.visaDocumentTemplate.findFirst({

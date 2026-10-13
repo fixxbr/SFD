@@ -461,6 +461,8 @@ model CaseDocument {
   displayName           String?        @map("display_name")
   /** Candidate/admin note explaining what this specific file is. */
   description           String?        @map("description")
+  /** Set only for link entries (URL, not an uploaded file). Links never count as documents. */
+  externalUrl           String?        @map("external_url")
   storageProvider       String         @map("storage_provider")
   storageKey            String         @map("storage_key")
   mimeType              String         @map("mime_type")

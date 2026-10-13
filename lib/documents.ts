@@ -5,6 +5,10 @@ import { questionByKey } from '@/lib/onboarding-catalog'
 import { buildStorageKey, putPrivateObjectTx, signedGetUrl, localSignedFileUrl, isS3Provider, validateUpload, usingCloudStorage } from '@/lib/storage'
 import { nextDocumentVersion } from '@/lib/documents-version'
 import { resolveAllowedMimeType } from '@/lib/upload-validation'
+import { sanitizeFilename } from '@/lib/normalize'
+
+/** MIME type stored on link rows. Links are never validated or counted as document files. */
+export const LINK_MIME_TYPE = 'text/uri-list'
 export { buildChecklist } from '@/lib/documents-checklist'
 
 /** Unique key so a second file on the same education/employment record does not replace the first. */
@@ -41,6 +45,11 @@ export async function uploadCaseDocument(input: {
   replaceDocumentId?: string | null
   /** Stable client key for safe retries after a lost response. */
   clientIdempotencyKey?: string | null
+  /**
+   * Internal: save a validated http(s) link instead of an uploaded file.
+   * Only lib/case-links.ts sets this; upload routes never do.
+   */
+  externalUrl?: string | null
 }) {
   const { validateDocumentDescription } = await import('@/lib/document-description')
   const descCheck = validateDocumentDescription(input.description)
@@ -61,14 +70,18 @@ export async function uploadCaseDocument(input: {
   const mapped = questionByKey(input.questionKey)
   const category = input.category ?? mapped?.category.id ?? 'additional'
   const documentType = input.documentType ?? mapped?.question.documentType ?? input.questionKey
-  const safeName = validateUpload({
-    mimeType: input.file.mimeType,
-    size: input.file.size,
-    filename: input.file.filename,
-  })
-  const mimeType =
-    resolveAllowedMimeType({ mimeType: input.file.mimeType, filename: input.file.filename }) ||
-    input.file.mimeType
+  const externalUrl = input.externalUrl?.trim() || null
+  const safeName = externalUrl
+    ? sanitizeFilename(input.file.filename)
+    : validateUpload({
+        mimeType: input.file.mimeType,
+        size: input.file.size,
+        filename: input.file.filename,
+      })
+  const mimeType = externalUrl
+    ? LINK_MIME_TYPE
+    : resolveAllowedMimeType({ mimeType: input.file.mimeType, filename: input.file.filename }) ||
+      input.file.mimeType
 
   const replaceId = input.replaceDocumentId || null
   // Multiple attachments are always allowed — never replace siblings unless replacing one file id.
@@ -147,6 +160,7 @@ export async function uploadCaseDocument(input: {
         originalFilename: input.file.filename,
         displayName: input.displayName?.trim() || null,
         description: descCheck.description,
+        externalUrl,
         storageProvider: stored.provider,
         storageKey: stored.key,
         mimeType,

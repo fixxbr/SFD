@@ -130,7 +130,7 @@ describe('admin + lawyer Documents tab visibility', () => {
     expect(resume?.files.map((f) => f.id).sort()).toEqual(['a', 'b'])
   })
 
-  it('surfaces GitHub / LinkedIn / other links in Profile & links', () => {
+  it('surfaces GitHub / LinkedIn / other links in the Links list, not in document folders', () => {
     const checklist = buildChecklist(
       [
         doc({
@@ -157,10 +157,12 @@ describe('admin + lawyer Documents tab visibility', () => {
       ],
       PROFILE_LINK_OPTIONS.map((o) => ({ key: o.key, label: o.label, category: o.category })),
     )
-    const linksFolder = checklist.folders.find((f) => f.id === 'profile_links')
-    expect(linksFolder).toBeTruthy()
-    const keys = linksFolder!.items.filter(isReceivedChecklistItem).map((i) => i.questionKey)
+    // Links live in their own list (Overview → Links), never among document folders.
+    expect(checklist.folders.find((f) => f.id === 'profile_links')).toBeUndefined()
+    const keys = checklist.links.filter(isReceivedChecklistItem).map((i) => i.questionKey)
     expect(keys).toEqual(expect.arrayContaining(['github_url', 'linkedin_url', 'other_links']))
+    const docIds = checklist.folders.flatMap((f) => f.items).flatMap((i) => i.files.map((d) => d.id))
+    expect(docIds).not.toContain('g')
   })
 
   it('surfaces education evidence attachments under Education History', () => {

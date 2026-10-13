@@ -13,7 +13,7 @@ import { appUrl } from '@/lib/http'
 import { resolveCandidateUploadUrl, getCandidateUploadUrl } from '@/lib/candidate-upload-url'
 import { formatVisa } from '@/lib/visa'
 import { ActivityType, logActivity } from '@/lib/activity'
-import { caseVisaToCode, getActiveVisaTemplate } from '@/lib/visa-templates'
+import { caseVisaToCode, getActiveVisaTemplate, SEED_TEMPLATE_ITEM_PREFIX } from '@/lib/visa-templates'
 import { randomUUID } from 'crypto'
 import type { VisaType } from '@prisma/client'
 
@@ -196,7 +196,8 @@ export async function createDocumentRequestPackage(input: {
           id: randomUUID(),
           candidateId: record.candidateId,
           caseId: record.id,
-          templateItemId: item.templateItemId || null,
+          templateItemId:
+            item.templateItemId && !item.templateItemId.startsWith(SEED_TEMPLATE_ITEM_PREFIX) ? item.templateItemId : null,
           category: item.category,
           documentKey: item.key,
           documentName: item.label,

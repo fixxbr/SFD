@@ -217,7 +217,8 @@ export async function searchCandidates(user: AuthUser, params: URLSearchParams) 
                 ? false
                 : { select: { installmentNumber: true, amountCents: true, status: true, paidAmountCents: true } },
             documents: {
-              where: { isCurrentVersion: true, status: { not: 'ARCHIVED' } },
+              // Links are not documents — keep them out of file counts.
+              where: { isCurrentVersion: true, status: { not: 'ARCHIVED' }, externalUrl: null },
               select: { isCurrentVersion: true, status: true },
             },
             onboardingSubmissions: {

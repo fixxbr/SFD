@@ -273,9 +273,7 @@ export async function POST(request: Request, ctx: Ctx) {
 
     if (body.action === 'document-request') {
       await requirePermission('communications:write')
-      const template = await (await import('@/lib/visa-templates')).getActiveVisaTemplate(
-        (await import('@/lib/visa-templates')).caseVisaToCode(record.visaType),
-      )
+      const template = await (await import('@/lib/visa-templates')).resolveVisaTemplate(record.visaType)
       const items =
         template?.items.map((i) => ({
           key: i.documentKey,

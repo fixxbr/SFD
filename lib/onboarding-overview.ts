@@ -5,6 +5,7 @@ import {
   visibleDocumentName,
   buildChecklist,
   isReceivedChecklistItem,
+  type Checklist,
   type DocumentVersion,
 } from '@/lib/documents-checklist'
 import { isAdditionalEvidenceKey, OTHER_SUPPORTING_DOCUMENT_KEY, canonicalDocumentLabel } from '@/lib/document-keys'
@@ -209,6 +210,107 @@ export function deriveOnboardingDisplayStatus(input: {
   return 'NOT_STARTED'
 }
 
+function overviewStatusHint(status: OnboardingDisplayStatus) {
+  return status === 'NOT_STARTED'
+    ? 'No onboarding invite or submitted information yet.'
+    : status === 'INVITED'
+      ? 'Invite sent — candidate has not saved answers or uploads yet.'
+      : status === 'IN_PROGRESS'
+        ? 'Candidate has saved answers and/or uploaded documents. Formal onboarding submit is still pending.'
+        : status === 'SUBMITTED'
+          ? 'Candidate submitted the onboarding form.'
+          : ''
+}
+
+const REQUIREMENT_FOLDER_EXTRAS = new Set(['custom', 'extra', 'other_supporting'])
+
+function buildOverviewFromChecklist(input: {
+  answers: Record<string, unknown>
+  checklist: Checklist
+  submissionStatus?: string | null
+  caseStatus?: string | null
+  hasInvite?: boolean
+  reviews?: Record<string, { status?: string; note?: string }> | null
+}) {
+  const { answers, checklist } = input
+  const hasAnswerProgress = answerHasProgress(answers)
+  const hasDocumentProgress = checklist.folders.some((f) => f.items.some((i) => i.files.length > 0))
+  const status = deriveOnboardingDisplayStatus({
+    submissionStatus: input.submissionStatus,
+    caseStatus: input.caseStatus,
+    hasInvite: input.hasInvite,
+    hasAnswerProgress,
+    hasDocumentProgress,
+  })
+
+  // Questionnaire answers (text, URLs, lists). Files are listed below from the checklist.
+  const answerSections: OverviewSection[] = []
+  for (const cat of O1_CATEGORIES) {
+    const fields: OverviewField[] = cat.questions
+      .filter((q) => q.type !== 'file')
+      .map((q) => {
+        const text = formatOnboardingAnswer(answers[q.key], q.type)
+        return {
+          key: q.key,
+          label: q.label,
+          type: q.type,
+          text,
+          files: [],
+          reviewStatus: input.reviews?.[q.key]?.status ?? null,
+          hasValue: Boolean(text),
+        }
+      })
+    if (!fields.some((f) => f.hasValue)) continue
+    answerSections.push({
+      id: `answers_${cat.id}`,
+      title: cat.title,
+      folderTitle: `${cat.number} ${cat.title} — answers`,
+      fields,
+      answeredCount: fields.filter((f) => f.hasValue).length,
+      totalCount: fields.length,
+    })
+  }
+
+  // Documents: exactly the Documents-tab folders. Requirement folders list every slot;
+  // catch-all / orphan / evidence folders list only what was received.
+  const documentSections: OverviewSection[] = []
+  for (const folder of checklist.folders) {
+    const optional = REQUIREMENT_FOLDER_EXTRAS.has(folder.id) || folder.id.startsWith('evidence_')
+    const items = optional ? folder.items.filter(isReceivedChecklistItem) : folder.items
+    if (!items.length) continue
+    const fields: OverviewField[] = items.map((item) => {
+      const files = item.files.map((f) => overviewFileFromDocument(f))
+      return {
+        key: item.questionKey,
+        label: item.label,
+        type: 'file' as const,
+        text: null,
+        files,
+        reviewStatus: null,
+        hasValue: files.length > 0,
+      }
+    })
+    documentSections.push({
+      id: folder.id,
+      title: folder.title,
+      folderTitle: folder.title,
+      fields,
+      answeredCount: fields.filter((f) => f.hasValue).length,
+      totalCount: fields.length,
+    })
+  }
+
+  return {
+    status,
+    sections: [...answerSections, ...documentSections],
+    hasAnswerProgress,
+    hasDocumentProgress,
+    showSendInvite: status === 'NOT_STARTED',
+    showResendInvite: status === 'INVITED' || status === 'IN_PROGRESS' || status === 'MORE_INFORMATION_REQUIRED',
+    statusHint: overviewStatusHint(status),
+  }
+}
+
 export function buildOnboardingOverview(input: {
   answers?: Record<string, unknown> | null
   documents?: DocumentVersion[]
@@ -217,6 +319,12 @@ export function buildOnboardingOverview(input: {
   caseStatus?: string | null
   hasInvite?: boolean
   reviews?: Record<string, { status?: string; note?: string }> | null
+  /**
+   * The case's visa-aware checklist (the one the Documents tab renders). When given,
+   * Overview lists documents straight from it — same folders, names, files and counts —
+   * and links are left to the Links section.
+   */
+  checklist?: Checklist | null
 }): {
   status: OnboardingDisplayStatus
   sections: OverviewSection[]
@@ -227,6 +335,7 @@ export function buildOnboardingOverview(input: {
   statusHint: string
 } {
   const answers = (input.answers ?? {}) as Record<string, unknown>
+  if (input.checklist) return buildOverviewFromChecklist({ ...input, answers, checklist: input.checklist })
   const catalogDocs = activeDocuments(input.documents ?? [])
   const evidenceProgress = (input.documents ?? []).some(
     (d) =>

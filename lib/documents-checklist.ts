@@ -51,6 +51,8 @@ export type ChecklistItem = {
   files: DocumentVersion[]
   versions: DocumentVersion[]
   kind?: 'file' | 'link'
+  /** Counts toward Required / Missing. False for catch-all, orphan and evidence-record slots. */
+  requirement?: boolean
 }
 
 /** True when the file row has real payload (not an empty stub). */
@@ -197,181 +199,271 @@ function buildEvidenceFolders(documents: DocumentVersion[]): { id: string; title
   return folders
 }
 
+/** One requirement slot from the case's visa document template (DB template or seed fallback). */
+export type VisaTemplateSlot = {
+  documentKey: string
+  documentName: string
+  category: string
+  sortOrder?: number | null
+}
+
+export type ChecklistFolder = { id: string; title: string; items: ChecklistItem[] }
+
+export type Checklist = {
+  /** Document folders only (files). Links are never in here. */
+  folders: ChecklistFolder[]
+  /** Link slots (requested and/or submitted). Kept apart so links never count as documents. */
+  links: ChecklistItem[]
+}
+
+function slotItem(
+  base: Omit<ChecklistItem, 'status' | 'current' | 'files' | 'versions'>,
+  versions: DocumentVersion[],
+): ChecklistItem {
+  const sorted = versions.sort((a, b) => b.version - a.version)
+  const files = activeFiles(sorted)
+  return { ...base, status: slotStatus(files), current: files[0] ?? null, files, versions: sorted }
+}
+
+/** Take only rows whose key is exactly `slotKey` (first pass, so aliases never steal a sibling slot's files). */
+function claimExact(pool: DocumentVersion[], slotKey: string): DocumentVersion[] {
+  const claimed = pool.filter((d) => d.questionKey === slotKey)
+  const remaining = pool.filter((d) => d.questionKey !== slotKey)
+  pool.length = 0
+  pool.push(...remaining)
+  return claimed
+}
+
+/** Visa-template folders, in template order. The catch-all “additional” item is optional, not a requirement. */
+function buildTemplateFolders(
+  pool: DocumentVersion[],
+  templateItems: VisaTemplateSlot[],
+  customDefs: DocumentLabelDef[],
+): ChecklistFolder[] {
+  const ordered = [...templateItems].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+  const slots: Array<{ item: VisaTemplateSlot; key: string; versions: DocumentVersion[] }> = []
+  const seen = new Set<string>()
+  for (const item of ordered) {
+    const key = item.documentKey.trim()
+    if (!key || seen.has(key) || isLinkRequestKey(key)) continue
+    seen.add(key)
+    slots.push({ item, key, versions: claimExact(pool, key) })
+  }
+  // Second pass: legacy / onboarding aliases (e.g. award_certificates → awards_evidence).
+  for (const slot of slots) slot.versions.push(...claimDocuments(pool, slot.key))
+
+  const folders: ChecklistFolder[] = []
+  for (const { item, key, versions } of slots) {
+    const title = item.category.trim() || 'Documents'
+    let folder = folders.find((f) => f.title === title)
+    if (!folder) {
+      folder = { id: `visa_${folders.length + 1}`, title, items: [] }
+      folders.push(folder)
+    }
+    folder.items.push(
+      slotItem(
+        {
+          categoryId: folder.id,
+          categoryTitle: title,
+          folderTitle: title,
+          questionKey: key,
+          label:
+            customDefs.find((d) => d.key === key)?.label?.trim() ||
+            item.documentName.trim() ||
+            canonicalDocumentLabel(key, customDefs),
+          documentType: key,
+          kind: 'file',
+          requirement: !isAdditionalEvidenceKey(key),
+        },
+        versions,
+      ),
+    )
+  }
+  return folders
+}
+
+/** Legacy O-1 onboarding catalog folders (used when no visa template is supplied). */
+function buildCatalogFolders(pool: DocumentVersion[], customDefs: DocumentLabelDef[]): ChecklistFolder[] {
+  return O1_CATEGORIES.map((category) => ({
+    id: category.id,
+    title: category.folderTitle,
+    items: category.questions
+      .filter((q) => q.type === 'file')
+      .map((question) =>
+        slotItem(
+          {
+            categoryId: category.id,
+            categoryTitle: category.title,
+            folderTitle: category.folderTitle,
+            questionKey: question.key,
+            label: canonicalDocumentLabel(question.key, customDefs),
+            documentType: question.documentType ?? question.key,
+            kind: 'file',
+            requirement: !isAdditionalEvidenceKey(question.key),
+          },
+          claimDocuments(pool, question.key),
+        ),
+      ),
+  }))
+}
+
+function linkSlotLabel(key: string, customDefs: DocumentLabelDef[], versions: DocumentVersion[]) {
+  const def = customDefs.find((d) => d.key === key)
+  if (def?.label) return def.label
+  if (PROFILE_LINK_OPTIONS.some((o) => o.key === key)) return canonicalDocumentLabel(key, customDefs)
+  const named = versions.find((v) => v.displayName && !/^https?:\/\//i.test(v.displayName))
+  return named?.displayName?.trim() || 'Link'
+}
+
+function buildLinkItems(linkDocs: DocumentVersion[], customDefs: DocumentLabelDef[]): ChecklistItem[] {
+  const pool = [...linkDocs]
+  const items: ChecklistItem[] = []
+  const seen = new Set<string>()
+  // Requested link slots (request items / custom defs) first, so pending requests stay visible.
+  for (const def of customDefs.filter((d) => isLinkRequestKey(d.key))) {
+    if (seen.has(def.key)) continue
+    seen.add(def.key)
+    items.push(
+      slotItem(
+        {
+          categoryId: 'profile_links',
+          categoryTitle: 'Links',
+          folderTitle: 'Links',
+          questionKey: def.key,
+          label: def.label || canonicalDocumentLabel(def.key, customDefs),
+          documentType: def.key,
+          kind: 'link',
+          requirement: true,
+        },
+        claimDocuments(pool, def.key),
+      ),
+    )
+  }
+  for (const key of [...new Set(pool.map((d) => d.questionKey))]) {
+    const versions = claimDocuments(pool, key)
+    items.push(
+      slotItem(
+        {
+          categoryId: 'profile_links',
+          categoryTitle: 'Links',
+          folderTitle: 'Links',
+          questionKey: key,
+          label: linkSlotLabel(key, customDefs, versions),
+          documentType: key,
+          kind: 'link',
+          requirement: false,
+        },
+        versions,
+      ),
+    )
+  }
+  return items
+}
+
 /**
- * Build the admin/lawyer Documents checklist from the same CaseDocument rows
- * the candidate portal writes. Template aliases, profile links, and
- * “Other supporting document” always surface when files exist.
+ * Build the admin/lawyer document checklist from the same CaseDocument rows
+ * the candidate portal writes. Overview, Documents and Request Documents all
+ * read this one result, so their lists and counts cannot drift apart.
+ *
+ * - `templateItems`: the case's visa template. When given, requirement slots
+ *   come from that visa only; otherwise the legacy O-1 catalog is used.
+ * - Links (rows with an external URL) are returned in `links`, never in `folders`.
+ * - Files that match no slot are still shown (Additional uploads) — never dropped.
  */
 export function buildChecklist(
   documents: DocumentVersion[],
   customDefs: DocumentLabelDef[] = [],
-): { folders: { id: string; title: string; items: ChecklistItem[] }[] } {
+  options: { templateItems?: VisaTemplateSlot[] | null } = {},
+): Checklist {
+  const nonEvidence = documents.filter((d) => !d.evidenceEntryId)
+  const linkDocs = nonEvidence.filter((d) => isExternalLinkDocument(d))
   // Structured evidence files go in dedicated section folders, not the catalog pool.
-  const pool = documents.filter((d) => !d.evidenceEntryId)
-  const folders: { id: string; title: string; items: ChecklistItem[] }[] = []
+  const pool = nonEvidence.filter((d) => !isExternalLinkDocument(d))
 
-  for (const category of O1_CATEGORIES) {
-    const items: ChecklistItem[] = category.questions
-      .filter((q) => q.type === 'file')
-      .map((question) => {
-        const versions = claimDocuments(pool, question.key).sort((a, b) => b.version - a.version)
-        const files = activeFiles(versions)
-        return {
-          categoryId: category.id,
-          categoryTitle: category.title,
-          folderTitle: category.folderTitle,
-          questionKey: question.key,
-          label: canonicalDocumentLabel(question.key, customDefs),
-          documentType: question.documentType ?? question.key,
-          status: slotStatus(files),
-          current: files[0] ?? null,
-          files,
-          versions,
-          kind: 'file' as const,
-        }
-      })
-    folders.push({ id: category.id, title: category.folderTitle, items })
-  }
+  const folders: ChecklistFolder[] = options.templateItems?.length
+    ? buildTemplateFolders(pool, options.templateItems, customDefs)
+    : buildCatalogFolders(pool, customDefs)
 
   folders.push(...buildEvidenceFolders(documents))
 
-  // Profile / web links (GitHub, LinkedIn, other_links, custom link_*).
-  const linkDefs = [
-    ...PROFILE_LINK_OPTIONS.map((o) => ({ key: o.key, label: o.label, category: o.category })),
-    ...customDefs.filter((d) => isLinkRequestKey(d.key)),
-  ]
-  const linkItems: ChecklistItem[] = []
-  const seenLinkKeys = new Set<string>()
-  for (const def of linkDefs) {
-    if (seenLinkKeys.has(def.key)) continue
-    seenLinkKeys.add(def.key)
-    const versions = claimDocuments(pool, def.key).sort((a, b) => b.version - a.version)
-    const files = activeFiles(versions)
-    linkItems.push({
-      categoryId: 'profile_links',
-      categoryTitle: 'Profile & links',
-      folderTitle: def.category || 'Profile & links',
-      questionKey: def.key,
-      label: def.label,
-      documentType: def.key,
-      status: slotStatus(files),
-      current: files[0] ?? null,
-      files,
-      versions,
-      kind: 'link',
-    })
-  }
-  // Any remaining link-keyed docs not covered above.
-  const leftoverLinkKeys = [...new Set(pool.filter((d) => isLinkRequestKey(d.questionKey)).map((d) => d.questionKey))]
-  for (const key of leftoverLinkKeys) {
-    const versions = claimDocuments(pool, key).sort((a, b) => b.version - a.version)
-    const files = activeFiles(versions)
-    linkItems.push({
-      categoryId: 'profile_links',
-      categoryTitle: 'Profile & links',
-      folderTitle: 'Profile & links',
-      questionKey: key,
-      label: labelForKey(key, customDefs, files),
-      documentType: key,
-      status: slotStatus(files),
-      current: files[0] ?? null,
-      files,
-      versions,
-      kind: 'link',
-    })
-  }
-  if (linkItems.some((item) => isReceivedChecklistItem(item) || customDefs.some((d) => documentMatchesSlot(d.key, item.questionKey)))) {
-    folders.push({
-      id: 'profile_links',
-      title: 'Profile & links',
-      items: linkItems.filter(
-        (item) =>
-          isReceivedChecklistItem(item) ||
-          customDefs.some((d) => documentMatchesSlot(d.key, item.questionKey)),
-      ),
-    })
-  }
-
-  // Custom request slots (including template keys persisted as customDocumentDef).
-  const catalogKeys = new Set(folders.flatMap((f) => f.items.map((i) => i.questionKey)))
+  // Custom / requested file slots (request items and case-specific requirements).
+  const slotKeys = new Set(folders.flatMap((f) => f.items.map((i) => i.questionKey)))
   const customItems: ChecklistItem[] = []
   for (const def of customDefs) {
-    if (catalogKeys.has(def.key) || isLinkRequestKey(def.key)) continue
-    const versions = claimDocuments(pool, def.key).sort((a, b) => b.version - a.version)
-    const files = activeFiles(versions)
-    customItems.push({
-      categoryId: 'custom',
-      categoryTitle: 'Requested documents',
-      folderTitle: def.category || 'Requested documents',
-      questionKey: def.key,
-      label: def.label,
-      documentType: def.key,
-      status: slotStatus(files),
-      current: files[0] ?? null,
-      files,
-      versions,
-      kind: 'file',
-    })
-    catalogKeys.add(def.key)
+    if (isLinkRequestKey(def.key)) continue
+    if ([...slotKeys].some((key) => documentMatchesSlot(def.key, key))) continue
+    customItems.push(
+      slotItem(
+        {
+          categoryId: 'custom',
+          categoryTitle: 'Requested documents',
+          folderTitle: def.category || 'Requested documents',
+          questionKey: def.key,
+          label: def.label,
+          documentType: def.key,
+          kind: 'file',
+          requirement: !isAdditionalEvidenceKey(def.key),
+        },
+        claimDocuments(pool, def.key),
+      ),
+    )
+    slotKeys.add(def.key)
   }
   if (customItems.length) {
     folders.push({ id: 'custom', title: 'Requested documents', items: customItems })
   }
 
   // Always keep a catch-all “Other supporting document” bucket.
-  const otherVersions = claimDocuments(pool, OTHER_SUPPORTING_DOCUMENT_KEY).sort((a, b) => b.version - a.version)
-  // Also claim any remaining additional_* aliases still in the pool.
+  const otherVersions = claimDocuments(pool, OTHER_SUPPORTING_DOCUMENT_KEY)
   for (const key of [...new Set(pool.map((d) => d.questionKey))]) {
-    if (isAdditionalEvidenceKey(key)) {
-      otherVersions.push(...claimDocuments(pool, key))
-    }
+    if (isAdditionalEvidenceKey(key)) otherVersions.push(...claimDocuments(pool, key))
   }
-  otherVersions.sort((a, b) => b.version - a.version)
-  const otherFiles = activeFiles(otherVersions)
   folders.push({
     id: 'other_supporting',
     title: 'Other supporting documents',
     items: [
-      {
-        categoryId: 'other_supporting',
-        categoryTitle: 'Other supporting documents',
-        folderTitle: 'Other supporting documents',
-        questionKey: OTHER_SUPPORTING_DOCUMENT_KEY,
-        label: 'Additional supporting files',
-        documentType: 'additional_evidence',
-        status: slotStatus(otherFiles),
-        current: otherFiles[0] ?? null,
-        files: otherFiles,
-        versions: otherVersions,
-        kind: 'file',
-      },
+      slotItem(
+        {
+          categoryId: 'other_supporting',
+          categoryTitle: 'Other supporting documents',
+          folderTitle: 'Other supporting documents',
+          questionKey: OTHER_SUPPORTING_DOCUMENT_KEY,
+          label: 'Additional supporting files',
+          documentType: 'additional_evidence',
+          kind: 'file',
+          requirement: false,
+        },
+        otherVersions,
+      ),
     ],
   })
 
-  // True orphans (lawyer uploads, unknown keys) — still visible, never dropped.
+  // True orphans (lawyer uploads, onboarding keys outside this visa's template) — still visible, never dropped.
   const orphanKeys = [...new Set(pool.map((d) => d.questionKey))]
   if (orphanKeys.length) {
-    const items: ChecklistItem[] = orphanKeys.map((key) => {
-      const versions = claimDocuments(pool, key).sort((a, b) => b.version - a.version)
-      const files = activeFiles(versions)
-      return {
-        categoryId: 'extra',
-        categoryTitle: 'Additional uploads',
-        folderTitle: 'Additional uploads',
-        questionKey: key,
-        label: labelForKey(key, customDefs, files),
-        documentType: key,
-        status: slotStatus(files),
-        current: files[0] ?? null,
-        files,
-        versions,
-        kind: isLinkRequestKey(key) ? 'link' : 'file',
-      }
+    folders.push({
+      id: 'extra',
+      title: 'Additional uploads',
+      items: orphanKeys.map((key) => {
+        const versions = claimDocuments(pool, key)
+        return slotItem(
+          {
+            categoryId: 'extra',
+            categoryTitle: 'Additional uploads',
+            folderTitle: 'Additional uploads',
+            questionKey: key,
+            label: labelForKey(key, customDefs, versions),
+            documentType: key,
+            kind: 'file',
+            requirement: false,
+          },
+          versions,
+        )
+      }),
     })
-    folders.push({ id: 'extra', title: 'Additional uploads', items })
   }
 
-  return { folders }
+  return { folders, links: buildLinkItems(linkDocs, customDefs) }
 }
 
 /** Count received files visible to admin/lawyer Documents tabs (excludes evidence-entry attachments). */

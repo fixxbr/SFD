@@ -10,15 +10,16 @@ import { StatusBadge } from '@/components/admin/status-badge'
 import { formatDateTime } from '@/lib/format'
 import { CASE_STATUS_LABELS, formatVisa } from '@/lib/visa'
 import { formatCents, validatePreFilingAllocation, financialSummary, expectedSplit } from '@/lib/payments'
-import { O1_CATEGORIES, questionByKey } from '@/lib/onboarding-catalog'
-import { buildChecklist, isMissingChecklistItem } from '@/lib/documents-checklist'
-import { defsFromRequestItems } from '@/lib/document-keys'
+import { questionByKey } from '@/lib/onboarding-catalog'
+import { buildChecklist, type Checklist, type VisaTemplateSlot } from '@/lib/documents-checklist'
+import { defsFromRequestItems, OTHER_SUPPORTING_DOCUMENT_KEY } from '@/lib/document-keys'
 import { buildOnboardingOverview } from '@/lib/onboarding-overview'
-import { buildRequirementRows } from '@/lib/document-requirement-status'
 import { DocumentPreviewModal } from '@/components/admin/document-preview-modal'
 import { DocumentFileName } from '@/components/admin/document-file-name'
 import { formatUrlForDisplay } from '@/lib/document-links'
-import { countChecklist } from '@/lib/document-counts'
+import { countChecklist, missingChecklistItems } from '@/lib/document-counts'
+import { DocumentCountsBar } from '@/components/admin/document-counts-bar'
+import { LinksPanel } from '@/components/admin/links-panel'
 import { can } from '@/lib/rbac'
 import {
   EMAIL_TEMPLATES,
@@ -36,6 +37,7 @@ import { FinancialCenter } from '@/components/admin/financial-center'
 import { DocumentsBlock } from '@/components/admin/documents-block'
 import { LawyerAssignmentControl } from '@/components/admin/lawyer-assignment-control'
 import { uploadFileToApi } from '@/lib/client-upload'
+import { UPLOAD_ACCEPT, UPLOAD_TYPE_HINT } from '@/lib/upload-validation'
 import { EmailCopyActions } from '@/components/admin/email-copy-actions'
 import { EvidenceEntriesPanel } from '@/components/admin/evidence-entries-panel'
 import { DownloadExportMenu } from '@/components/admin/download-export-menu'
@@ -91,6 +93,7 @@ export function CandidateProfile({
   paymentStatus,
   adminName,
   initialTab = 'overview',
+  templateItems = [],
 }: {
   candidate: any
   currentCase: any
@@ -102,6 +105,8 @@ export function CandidateProfile({
   adminName: string
   /** Must match the server-resolved tab (from `?tab=`). Never derive from `window` on first render. */
   initialTab?: TabKey
+  /** The case's visa document template (same list the Request Documents center offers). */
+  templateItems?: VisaTemplateSlot[]
 }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -173,21 +178,13 @@ export function CandidateProfile({
     )
     return [...fromRequests, ...(currentCase?.customDocumentDefs ?? [])]
   }, [currentCase?.documentRequests, currentCase?.customDocumentDefs])
+  // One visa-aware checklist feeds Overview, Documents and Request Documents (lists + counts).
   const checklist = useMemo(
-    () => buildChecklist(currentCase?.documents ?? [], labelDefs),
-    [currentCase?.documents, labelDefs],
+    () => buildChecklist(currentCase?.documents ?? [], labelDefs, { templateItems }),
+    [currentCase?.documents, labelDefs, templateItems],
   )
-  const checklistItems = useMemo(() => checklist.folders.flatMap((f) => f.items), [checklist])
-  const requirementRows = useMemo(
-    () =>
-      buildRequirementRows(
-        (currentCase?.documentRequests ?? []).flatMap((request: { items?: Array<Record<string, string>> }) => request.items ?? []),
-        currentCase?.documents ?? [],
-      ),
-    [currentCase],
-  )
-  const pendingRequirements = requirementRows.filter((row) => row.display.code === 'REQUESTED' || row.display.code === 'NEEDS_REPLACEMENT')
-  const docCounts = useMemo(() => countChecklist(checklistItems), [checklistItems])
+  const missingItems = useMemo(() => missingChecklistItems(checklist), [checklist])
+  const docCounts = useMemo(() => countChecklist(checklist), [checklist])
   const lawyer = currentCase?.assignedAttorney?.fullName
   const referred = currentCase?.referredByAdmin?.fullName ?? currentCase?.referredByName
   const financeStatus =
@@ -352,7 +349,7 @@ export function CandidateProfile({
           {!lawyerMode && <span>Balance: <strong>{formatCents(remaining, currency)}</strong></span>}
           {lawyerMode && (
             <span>
-              Documents: <strong>{docCounts.submitted} / {Math.max(docCounts.required, docCounts.submitted) || 0}</strong>
+              Documents: <strong>{docCounts.submitted} / {docCounts.required}</strong>
             </span>
           )}
         </div>
@@ -507,38 +504,16 @@ export function CandidateProfile({
 
           <div className="grid gap-4 lg:grid-cols-2">
             <Section id="doc-progress" title="Document Progress">
-              <div className="flex flex-wrap gap-4 text-sm">
-                <span>
-                  Submitted: <strong>{docCounts.submitted}</strong>
-                </span>
-                <span>
-                  Required: <strong>{docCounts.required}</strong>
-                </span>
-              <span>
-                  Missing:{' '}
-                  <button
-                    type="button"
-                    className="font-semibold text-[#0C2340] underline-offset-2 hover:underline"
-                    onClick={() => {
-                      setMissingDocsOpenSignal((n) => n + 1)
-                      selectTab('documents', 'missing-docs')
-                    }}
-                  >
-                    {docCounts.missing}
-                  </button>
-                </span>
-                <span>
-                  Accepted: <strong>{docCounts.accepted}</strong>
-                </span>
-                {lawyerMode && (
-                  <span>
-                    Needs revision: <strong>{checklistItems.filter((i: any) => i.status === 'NEEDS_REPLACEMENT').length}</strong>
-                  </span>
-                )}
-              </div>
+              <DocumentCountsBar
+                counts={docCounts}
+                onMissingClick={() => {
+                  setMissingDocsOpenSignal((n) => n + 1)
+                  selectTab('documents', 'missing-docs')
+                }}
+              />
               <p className="mt-3 text-2xl font-semibold tabular-nums text-[#0C2340]">
-                {docCounts.submitted} / {Math.max(docCounts.required, docCounts.submitted) || 0}
-                <span className="ml-2 text-sm font-normal text-[#64748B]">submitted</span>
+                {docCounts.submitted} / {docCounts.required}
+                <span className="ml-2 text-sm font-normal text-[#64748B]">required documents submitted</span>
               </p>
               <button type="button" className={`${btn} mt-3`} onClick={() => selectTab('documents')}>
                 Open Documents
@@ -625,10 +600,25 @@ export function CandidateProfile({
             )}
           </div>
 
+          <Section id="links" title="Links">
+            {!currentCase ? (
+              <p className="text-sm text-[#5B6B7C]">Create a case first.</p>
+            ) : (
+              <LinksPanel
+                candidateId={candidate.id}
+                caseId={currentCase.id}
+                links={checklist.links}
+                canWrite={writeD}
+                uploaderNames={Object.fromEntries((staff || []).map((s) => [s.id, s.fullName]))}
+                onDone={onDone}
+              />
+            )}
+          </Section>
+
           {!limited && !lawyerMode && (
             <Section id="progress" title="Case Progress">
               {!currentCase ? <p className="text-sm text-[#5B6B7C]">No case yet.</p> : (
-                <ProgressBlock currentCase={currentCase} checklist={checklist} canWrite={writeK} onDone={onDone} />
+                <ProgressBlock currentCase={currentCase} counts={docCounts} canWrite={writeK} onDone={onDone} />
               )}
             </Section>
           )}
@@ -684,6 +674,7 @@ export function CandidateProfile({
             <Section id="onboarding" title="Onboarding / Submitted Information">
               <OnboardingBlock
                 currentCase={currentCase}
+                checklist={checklist}
                 canReview={can(userRole, 'onboarding:review')}
                 lawyerMode={lawyerMode}
                 onDone={onDone}
@@ -696,25 +687,13 @@ export function CandidateProfile({
       {tab === 'documents' && !limited && (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#D7DEE6] bg-white px-5 py-3 text-sm">
-            <div className="flex flex-wrap gap-3">
-              <span>Required: <strong>{docCounts.required}</strong></span>
-              <span>Submitted: <strong>{docCounts.submitted}</strong></span>
-              <span>
-                Missing:{' '}
-                <button
-                  type="button"
-                  className="font-semibold text-[#0C2340] underline-offset-2 hover:underline"
-                  onClick={() => {
-                    setMissingDocsOpenSignal((n) => n + 1)
-                    selectTab('documents', 'missing-docs')
-                  }}
-                >
-                  {requirementRows.length ? pendingRequirements.length : docCounts.missing}
-                </button>
-              </span>
-              <span>Under Review: <strong>{docCounts.underReview}</strong></span>
-              <span>Accepted: <strong>{docCounts.accepted}</strong></span>
-            </div>
+            <DocumentCountsBar
+              counts={docCounts}
+              onMissingClick={() => {
+                setMissingDocsOpenSignal((n) => n + 1)
+                selectTab('documents', 'missing-docs')
+              }}
+            />
             {writeM && docCounts.missing > 0 && (
               <button
                 type="button"
@@ -728,22 +707,15 @@ export function CandidateProfile({
               </button>
             )}
           </div>
-          {(requirementRows.length ? pendingRequirements.length : docCounts.missing) > 0 && (
+          {missingItems.length > 0 && (
             <MissingDocumentsSection openFromHash={hash === 'missing-docs'} openSignal={missingDocsOpenSignal}>
               <ul className="space-y-1 text-sm">
-                {requirementRows.length
-                  ? pendingRequirements.map((item) => (
-                      <li key={item.documentKey} className="flex flex-wrap justify-between gap-2 border-t border-[#EEF1F4] py-2">
-                        <span>{item.documentName}</span>
-                        <StatusBadge status={item.display.label} />
-                      </li>
-                    ))
-                  : checklistItems.filter(isMissingChecklistItem).map((item) => (
-                      <li key={item.questionKey} className="flex flex-wrap justify-between gap-2 border-t border-[#EEF1F4] py-2">
-                        <span>{item.label}</span>
-                        <StatusBadge status={String(item.status).replaceAll('_', ' ')} />
-                      </li>
-                    ))}
+                {missingItems.map((item) => (
+                  <li key={item.questionKey} className="flex flex-wrap justify-between gap-2 border-t border-[#EEF1F4] py-2">
+                    <span>{item.label}</span>
+                    <StatusBadge status={String(item.status).replaceAll('_', ' ')} />
+                  </li>
+                ))}
               </ul>
             </MissingDocumentsSection>
           )}
@@ -760,6 +732,9 @@ export function CandidateProfile({
                 visaType={currentCase.visaType}
                 canWrite={writeM}
                 canUpload={writeD}
+                counts={docCounts}
+                missingKeys={missingItems.map((item) => item.questionKey)}
+                onChanged={onDone}
               />
             </Section>
           )}
@@ -922,7 +897,7 @@ export function CandidateProfile({
                     name="attachments"
                     multiple
                     className="mt-1 block w-full cursor-pointer rounded border border-[#D7DEE6] bg-white px-2 py-1.5 text-sm file:mr-3 file:rounded file:border-0 file:bg-[#0C2340] file:px-2.5 file:py-1 file:text-xs file:font-medium file:text-white hover:file:bg-[#17385E]"
-                    accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                    accept={UPLOAD_ACCEPT}
                   />
                 </label>
               )}
@@ -973,7 +948,7 @@ export function CandidateProfile({
           candidate={candidate}
           currentCase={currentCase}
           defaultTemplate={emailTemplate}
-          missingDocumentLabels={checklistItems.filter(isMissingChecklistItem).map((i) => i.label)}
+          missingDocumentLabels={missingItems.map((i) => i.label)}
           onClose={() => {
             setEmailTemplate(undefined)
             setModal(null)
@@ -998,7 +973,7 @@ export function CandidateProfile({
       {modal === 'paid' && paidId && <MarkPaidModal paymentId={paidId} defaultCents={currentCase?.payments?.find((p: any) => p.id === paidId)?.amountCents ?? 0} onClose={() => setModal(null)} onDone={onDone} />}
       {modal === 'note' && currentCase && <AddNoteModal candidateId={candidate.id} caseId={currentCase.id} onClose={() => setModal(null)} onDone={onDone} />}
       {modal === 'edit' && <EditCandidateModal candidate={candidate} currentCase={currentCase} staff={staff} onClose={() => setModal(null)} onDone={onDone} />}
-      {modal === 'upload' && currentCase && <UploadModal candidateId={candidate.id} caseId={currentCase.id} onClose={() => setModal(null)} onDone={onDone} />}
+      {modal === 'upload' && currentCase && <UploadModal candidateId={candidate.id} caseId={currentCase.id} checklist={checklist} onClose={() => setModal(null)} onDone={onDone} />}
 
       {archiveOpen && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-20">
@@ -1693,7 +1668,19 @@ export function EditCandidateModal({ candidate, currentCase, staff, onClose, onD
   )
 }
 
-function UploadModal({ candidateId, caseId, onClose, onDone }: { candidateId: string; caseId: string; onClose: () => void; onDone: () => void }) {
+function UploadModal({
+  candidateId,
+  caseId,
+  checklist,
+  onClose,
+  onDone,
+}: {
+  candidateId: string
+  caseId: string
+  checklist: Checklist
+  onClose: () => void
+  onDone: () => void
+}) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [file, setFile] = useState<File | null>(null)
@@ -1725,15 +1712,20 @@ function UploadModal({ candidateId, caseId, onClose, onDone }: { candidateId: st
     <Shell title="Add Document" onClose={onClose}>
       <form onSubmit={submit} className="space-y-3">
         <select name="questionKey" className={input} disabled={busy}>
-          {O1_CATEGORIES.flatMap((c) =>
-            c.questions
-              .filter((q) => q.type === 'file')
-              .map((q) => (
-                <option key={q.key} value={q.key}>
-                  {q.label}
-                </option>
-              )),
-          )}
+          {/* Same visa document slots as Documents / Request Documents. */}
+          {checklist.folders
+            .filter((folder) => folder.items.some((item) => item.requirement || item.questionKey === OTHER_SUPPORTING_DOCUMENT_KEY))
+            .map((folder) => (
+              <optgroup key={folder.id} label={folder.title}>
+                {folder.items
+                  .filter((item) => item.requirement || item.questionKey === OTHER_SUPPORTING_DOCUMENT_KEY)
+                  .map((item) => (
+                    <option key={item.questionKey} value={item.questionKey}>
+                      {item.label}
+                    </option>
+                  ))}
+              </optgroup>
+            ))}
         </select>
         <label
           className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-8 text-center transition ${
@@ -1752,11 +1744,11 @@ function UploadModal({ candidateId, caseId, onClose, onDone }: { candidateId: st
           }}
         >
           <span className="text-sm font-medium text-[#0C2340]">Drag & drop files here</span>
-          <span className="mt-1 text-xs text-[#64748B]">or browse PDF, DOC, JPG, PNG</span>
+          <span className="mt-1 text-xs text-[#64748B]">or browse {UPLOAD_TYPE_HINT}</span>
           <input
             name="file"
             type="file"
-            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+            accept={UPLOAD_ACCEPT}
             className="sr-only"
             disabled={busy}
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
@@ -1785,11 +1777,13 @@ function UploadModal({ candidateId, caseId, onClose, onDone }: { candidateId: st
 
 function OnboardingBlock({
   currentCase,
+  checklist,
   canReview,
   lawyerMode,
   onDone,
 }: {
   currentCase: any
+  checklist: Checklist
   canReview: boolean
   lawyerMode?: boolean
   onDone: () => void
@@ -1830,8 +1824,9 @@ function OnboardingBlock({
       caseStatus: currentCase.status ?? null,
       hasInvite: Boolean(currentCase.onboardingInvites?.length),
       reviews,
+      checklist,
     })
-  }, [currentCase])
+  }, [currentCase, checklist])
 
   if (!currentCase) return <p className="text-sm text-[#5B6B7C]">Create a case first.</p>
 
@@ -2037,10 +2032,7 @@ function OnboardingBlock({
   )
 }
 
-function ProgressBlock({ currentCase, checklist, canWrite, onDone }: any) {
-  const items = checklist.folders.flatMap((f: any) => f.items)
-  const missing = items.filter((i: any) => i.status === 'MISSING').length
-  const accepted = items.filter((i: any) => i.status === 'ACCEPTED').length
+function ProgressBlock({ currentCase, counts, canWrite, onDone }: any) {
   const overviewStatus = buildOnboardingOverview({
     answers: currentCase?.onboardingSubmissions?.[0]?.answers ?? {},
     documents: currentCase?.documents ?? [],
@@ -2076,7 +2068,9 @@ function ProgressBlock({ currentCase, checklist, canWrite, onDone }: any) {
       )}
       <div className="text-sm">
         <p>Health: <StatusBadge status={currentCase.caseHealth} /></p>
-        <p className="mt-2">Docs: {accepted} accepted · {missing} missing · {items.length} total</p>
+        <p className="mt-2">
+          Docs: {counts.accepted} accepted · {counts.missing} missing · {counts.required} required · {counts.files} files
+        </p>
         <p className="mt-1 text-[#5B6B7C]">
           Onboarding: <StatusBadge status={overviewStatus} />
         </p>

@@ -1,4 +1,4 @@
-import { uploadCaseDocument } from '@/lib/documents'
+import { createCaseLink } from '@/lib/case-links'
 import {
   normalizeSubmittedUrls,
   resolveLinkInputKind,
@@ -34,40 +34,38 @@ export async function saveCandidateLinkSubmission(input: {
     throw new Error('Please submit a single URL for this item.')
   }
 
-  const bodyText = validated.join('\n')
-  const buffer = Buffer.from(bodyText, 'utf8')
-  const displayName = validated.length === 1 ? validated[0] : `${validated.length} links`
-  const filename =
-    validated.length === 1
-      ? `${input.questionKey || 'link'}.url.txt`
-      : `${input.questionKey || 'links'}.txt`
-
-  const document = await uploadCaseDocument({
-    candidateId: input.candidateId,
-    caseId: input.caseId,
-    questionKey: input.questionKey,
-    category: input.category || 'Profile & links',
-    documentType: input.questionKey,
-    file: {
-      buffer,
-      mimeType: 'text/plain',
-      filename,
-      size: buffer.byteLength,
-    },
-    uploadedByType: 'CANDIDATE',
-    displayName,
-    description: input.description?.trim() || `Submitted link${validated.length > 1 ? 's' : ''}: ${validated.join(', ')}`,
-    append: true,
-    clientIdempotencyKey: input.clientIdempotencyKey,
-  })
+  // One link row per URL so each link can be opened, edited and removed on its own.
+  const documents = []
+  for (const [index, href] of validated.entries()) {
+    documents.push(
+      await createCaseLink({
+        candidateId: input.candidateId,
+        caseId: input.caseId,
+        url: href,
+        label: validated.length === 1 ? input.label : `${input.label} (${index + 1})`,
+        questionKey: input.questionKey,
+        category: input.category || 'Profile & links',
+        note: input.description?.trim() || null,
+        uploadedByType: 'CANDIDATE',
+        clientIdempotencyKey: input.clientIdempotencyKey
+          ? validated.length === 1
+            ? input.clientIdempotencyKey
+            : `${input.clientIdempotencyKey}:${index}`
+          : null,
+        visaTypeCode: input.visaTypeCode ?? null,
+        onDuplicate: 'reuse',
+      }),
+    )
+  }
+  const document = documents[0]
 
   if (input.documentRequestId && input.documentRequestItemId) {
     await prisma.documentRequestItem.update({
       where: { id: input.documentRequestItemId },
       data: { status: 'UPLOADED' },
     })
-    await prisma.caseDocument.update({
-      where: { id: document.id },
+    await prisma.caseDocument.updateMany({
+      where: { id: { in: documents.map((doc) => doc.id) } },
       data: {
         documentRequestId: input.documentRequestId,
         documentRequestItemId: input.documentRequestItemId,
@@ -98,5 +96,5 @@ export async function saveCandidateLinkSubmission(input: {
     })
   }
 
-  return { document, urls: validated }
+  return { document, documents, urls: validated }
 }

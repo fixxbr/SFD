@@ -5,7 +5,9 @@ import { formatVisa } from '@/lib/visa'
 import { EmailCopyActions } from '@/components/admin/email-copy-actions'
 import { uploadFileToApi } from '@/lib/client-upload'
 import { ChevronDown, Upload } from 'lucide-react'
-import { UPLOAD_ACCEPT, UPLOAD_TYPE_HINT } from '@/lib/upload-validation'
+import { UPLOAD_ACCEPT, UPLOAD_TYPE_HINT, validateCandidateUploadFile } from '@/lib/upload-validation'
+import type { DocumentCounts } from '@/lib/document-counts'
+import { DocumentCountsBar } from '@/components/admin/document-counts-bar'
 import {
   PROFILE_LINK_CATEGORY,
   PROFILE_LINK_OPTIONS,
@@ -60,18 +62,26 @@ export function DocumentRequestCenter({
   visaType,
   canWrite,
   canUpload,
+  counts,
+  missingKeys = [],
+  onChanged,
 }: {
   caseId: string
   candidate: { id: string; fullLegalName: string; candidateNumber: string; email: string }
   visaType: string
   canWrite: boolean
   canUpload: boolean
+  /** Same counts Overview and Documents show (one shared checklist). */
+  counts?: DocumentCounts
+  /** Checklist slots with no file yet (alias-aware), so “Request Missing” matches the Missing count. */
+  missingKeys?: string[]
+  /** Refresh the whole profile so Overview / Documents update after any change here. */
+  onChanged?: () => void
 }) {
   const [loading, setLoading] = useState(true)
   const [templateItems, setTemplateItems] = useState<TemplateItem[]>([])
   const [customDocumentDefs, setCustomDocumentDefs] = useState<CustomDocumentOption[]>([])
   const [recent, setRecent] = useState<RecentRequest[]>([])
-  const [caseDocs, setCaseDocs] = useState<Array<{ questionKey: string; status: string }>>([])
   const [requestType, setRequestType] = useState<'FULL' | 'SELECTED' | 'CUSTOM' | 'SINGLE'>('SELECTED')
   const [selected, setSelected] = useState<Record<string, boolean>>({})
   const [current, setCurrent] = useState<RequestItem[]>([])
@@ -112,13 +122,18 @@ export function DocumentRequestCenter({
     setCustomDocumentDefs((json.customDocumentDefs ?? []) as CustomDocumentOption[])
     setTemplateId(json.template?.id ?? null)
     setRecent(json.recent ?? [])
-    setCaseDocs(json.documents ?? [])
     // Brand-new request: never auto-select template items (server + client agree on empty).
   }, [caseId])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  /** Reload this panel and the rest of the profile (Overview, Documents, counts). */
+  async function reloadAll() {
+    await load()
+    onChanged?.()
+  }
 
   const categories = useMemo(() => {
     const map = new Map<string, TemplateItem[]>()
@@ -238,7 +253,7 @@ export function DocumentRequestCenter({
         instructions: i.instructions,
         required: i.defaultRequired,
         allowsMultipleFiles: true,
-        templateItemId: i.id,
+        templateItemId: i.id.startsWith('seed:') ? null : i.id,
         source: 'template' as const,
         inputKind: 'file' as const,
       }))
@@ -347,7 +362,7 @@ export function DocumentRequestCenter({
       setPreviewPlain(json.plainText || '')
       setBodyEdited(false)
       setMessage(`${json.documentRequest?.requestNumber} created — edit if needed, then Copy Email`)
-      await load()
+      await reloadAll()
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Unable to create request')
     } finally {
@@ -427,7 +442,7 @@ export function DocumentRequestCenter({
         setPreviewPlain(json.plainText || '')
         setBodyEdited(false)
         setMessage(`Replacement request ready: ${json.documentRequest?.requestNumber}`)
-        await load()
+        await reloadAll()
       }
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Unable to create replacement request')
@@ -450,7 +465,7 @@ export function DocumentRequestCenter({
       setPreviewSubject('')
     }
     setMessage('Request cancelled')
-    await load()
+    await reloadAll()
   }
 
   async function adminUpload() {
@@ -519,21 +534,18 @@ export function DocumentRequestCenter({
     setAdminCustomTypeName('')
     setAdminNote('')
     setMessage(`${files.length} file(s) uploaded (previous files kept)`)
-    await load()
+    await reloadAll()
   }
 
   function requestMissing() {
-    const missingKeys = templateItems
-      .filter((item) => {
-        const doc = caseDocs.find((d) => d.questionKey === item.documentKey)
-        return !doc || doc.status === 'MISSING' || doc.status === 'NEEDS_REPLACEMENT'
-      })
-      .map((i) => i.documentKey)
+    // Same “missing” slots the Missing count uses (alias-aware), so the selection matches the number.
+    const missing = new Set(missingKeys)
+    const keys = templateItems.filter((item) => missing.has(item.documentKey)).map((i) => i.documentKey)
     const next: Record<string, boolean> = {}
-    for (const key of missingKeys) next[key] = true
+    for (const key of keys) next[key] = true
     setSelected(next)
     setRequestType('SELECTED')
-    setMessage(`${missingKeys.length} missing/replacement items selected`)
+    setMessage(`${keys.length} missing item${keys.length === 1 ? '' : 's'} selected`)
   }
 
   if (loading) return <p className="text-sm text-[#5B6B7C]">Loading document request center…</p>
@@ -553,6 +565,11 @@ export function DocumentRequestCenter({
             Visa: <strong>{formatVisa(visaType as never)}</strong>
           </p>
         </div>
+        {counts && (
+          <div className="mt-3 rounded-lg bg-white/95 px-3 py-2 text-[#0C2340]">
+            <DocumentCountsBar counts={counts} />
+          </div>
+        )}
       </div>
 
       {/* CARD A — Request Documents */}
@@ -871,6 +888,16 @@ export function DocumentRequestCenter({
                 className="mt-4 block w-full max-w-xl cursor-pointer text-sm"
                 onChange={(e) => {
                   const list = e.target.files ? Array.from(e.target.files) : []
+                  const rejected = list
+                    .map((file) => validateCandidateUploadFile({ filename: file.name, size: file.size, mimeType: file.type }))
+                    .filter((check): check is { ok: false; error: string } => !check.ok)
+                  if (rejected.length) {
+                    alert(rejected.map((check) => check.error).join('\n'))
+                    e.currentTarget.value = ''
+                    setAdminFiles([])
+                    setAdminFile(null)
+                    return
+                  }
                   setAdminFiles(list)
                   setAdminFile(list[0] ?? null)
                 }}
@@ -937,7 +964,10 @@ export function DocumentRequestCenter({
                 <input className={`${input} mt-1`} placeholder="Add an internal note" value={adminNote} onChange={(e) => setAdminNote(e.target.value)} />
               </label>
             </div>
-            <p className="text-xs text-[#64748B]">To request a URL instead of uploading a file, use Profile &amp; online links above.</p>
+            <p className="text-xs text-[#64748B]">
+              Files only ({UPLOAD_TYPE_HINT}). To save a URL, use Overview → Links; to ask the candidate for a URL, use
+              Profile &amp; online links above.
+            </p>
             <button
               type="button"
               className={primary}

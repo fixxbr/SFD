@@ -7,6 +7,7 @@ import { CandidateProfile } from '@/components/admin/candidate-profile'
 import { resolveCandidateTab } from '@/lib/candidate-profile-tabs'
 import { assertCanAccessCandidate } from '@/lib/lawyer-access'
 import { reconcileRequestItemsForCandidate } from '@/lib/sync-request-status'
+import { resolveVisaTemplate } from '@/lib/visa-templates'
 
 export const dynamic = 'force-dynamic'
 
@@ -85,6 +86,8 @@ export default async function LawyerCandidatePage({
 
   const currentCase = candidate.cases[0] ?? null
   const limited = !can(user.role, 'candidates:full_profile')
+  // Same visa document list the Request Documents center uses, so lists and counts match.
+  const visaTemplate = currentCase ? await resolveVisaTemplate(currentCase.visaType) : null
 
   return (
     <Suspense fallback={<div className="p-4 text-sm text-[#5B6B7C]">Loading candidate…</div>}>
@@ -96,6 +99,7 @@ export default async function LawyerCandidatePage({
         adminName={user.fullName}
         paymentStatus="—"
         initialTab={initialTab}
+        templateItems={visaTemplate?.items ?? []}
         candidate={JSON.parse(JSON.stringify(candidate))}
         currentCase={currentCase ? JSON.parse(JSON.stringify(currentCase)) : null}
       />

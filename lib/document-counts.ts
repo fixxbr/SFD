@@ -1,8 +1,10 @@
-import type { ChecklistItem } from '@/lib/documents-checklist'
+import type { Checklist, ChecklistItem } from '@/lib/documents-checklist'
 import { isMissingChecklistItem } from '@/lib/documents-checklist'
 
 export type DocumentCounts = {
+  /** Requirement slots for this case (visa template + requested/custom documents). */
   required: number
+  /** Requirement slots with at least one file on record. */
   submitted: number
   missing: number
   underReview: number
@@ -10,6 +12,12 @@ export type DocumentCounts = {
   needsRevision: number
   rejected: number
   notRequested: number
+  /** Every active uploaded file shown in the Documents list (all folders). */
+  files: number
+  /** Saved links. Links never change any document number above. */
+  links: number
+  /** Requested links the candidate has not provided yet. */
+  linksPending: number
 }
 
 const SUBMITTED: Array<ChecklistItem['status']> = [
@@ -21,8 +29,17 @@ const SUBMITTED: Array<ChecklistItem['status']> = [
   'PARTIALLY_UPLOADED',
 ]
 
-/** Derive document progress counts from a checklist (not dummy numbers). */
-export function countChecklist(items: ChecklistItem[]): DocumentCounts {
+/** Requirement slots only — catch-all, orphan and evidence-record folders never count as “required”. */
+export function requirementItems(checklist: Pick<Checklist, 'folders'>): ChecklistItem[] {
+  return checklist.folders.flatMap((f) => f.items).filter((item) => item.requirement === true && item.kind !== 'link')
+}
+
+/**
+ * The single source for document numbers shown in Overview, Documents and
+ * Request Documents. Derived from the checklist (real rows, not dummy numbers).
+ */
+export function countChecklist(checklist: Checklist): DocumentCounts {
+  const items = requirementItems(checklist)
   const counts: DocumentCounts = {
     required: items.length,
     submitted: 0,
@@ -32,6 +49,9 @@ export function countChecklist(items: ChecklistItem[]): DocumentCounts {
     needsRevision: 0,
     rejected: 0,
     notRequested: 0,
+    files: checklist.folders.flatMap((f) => f.items).reduce((n, item) => n + item.files.length, 0),
+    links: checklist.links.reduce((n, item) => n + item.files.length, 0),
+    linksPending: checklist.links.filter((item) => item.requirement && !item.files.length).length,
   }
   for (const item of items) {
     if (isMissingChecklistItem(item)) {
@@ -50,6 +70,6 @@ export function countChecklist(items: ChecklistItem[]): DocumentCounts {
   return counts
 }
 
-export function missingChecklistItems(items: ChecklistItem[]) {
-  return items.filter((i) => isMissingChecklistItem(i))
+export function missingChecklistItems(checklist: Pick<Checklist, 'folders'>) {
+  return requirementItems(checklist).filter((i) => isMissingChecklistItem(i))
 }

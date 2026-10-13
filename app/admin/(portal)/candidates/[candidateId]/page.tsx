@@ -8,6 +8,7 @@ import { resolveCandidateTab } from '@/lib/candidate-profile-tabs'
 import { overallPaymentStatus } from '@/lib/payments'
 import { assertCanAccessCandidate, isLawyerUser } from '@/lib/lawyer-access'
 import { reconcileRequestItemsForCandidate } from '@/lib/sync-request-status'
+import { resolveVisaTemplate } from '@/lib/visa-templates'
 import { AuthError } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
@@ -127,6 +128,8 @@ export default async function CandidateProfilePage({
 
   const currentCase = candidate.cases[0] ?? null
   const limited = !can(user.role, 'candidates:full_profile')
+  // Same visa document list the Request Documents center uses, so lists and counts match.
+  const visaTemplate = currentCase ? await resolveVisaTemplate(currentCase.visaType) : null
 
   return (
     <Suspense fallback={<div className="p-4 text-sm text-[#5B6B7C]">Loading profile…</div>}>
@@ -138,6 +141,7 @@ export default async function CandidateProfilePage({
         adminName={user.fullName}
         paymentStatus={lawyerMode ? '—' : overallPaymentStatus(currentCase?.payments ?? [])}
         initialTab={initialTab}
+        templateItems={visaTemplate?.items ?? []}
         candidate={JSON.parse(JSON.stringify(candidate))}
         currentCase={currentCase ? JSON.parse(JSON.stringify(currentCase)) : null}
       />

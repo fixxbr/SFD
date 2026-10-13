@@ -8,7 +8,7 @@ import { groupItemsForPortal, type RequestedDocItem } from '@/lib/document-reque
 import { sanitizeEvidenceMetadata } from '@/lib/evidence-section-meta'
 import { prisma } from '@/lib/db'
 import { resolveAllowedMimeType, validateCandidateUploadFile } from '@/lib/upload-validation'
-import { normalizeSubmittedUrls, resolveLinkInputKind } from '@/lib/link-request-items'
+import { isLinkRequestKey, normalizeSubmittedUrls, resolveLinkInputKind } from '@/lib/link-request-items'
 import { saveCandidateLinkSubmission } from '@/lib/save-candidate-links'
 import { markMatchingRequestItemsUploaded, reconcileRequestItemsForCandidate } from '@/lib/sync-request-status'
 import {
@@ -466,6 +466,15 @@ export async function POST(request: Request) {
       resolvedType = meta.questionKeyPrefix
     } else if (isAdditionalEvidenceKey(resolvedKey)) {
       resolvedKey = resolvedKey || OTHER_SUPPORTING_DOCUMENT_KEY
+    }
+
+    if (!evidenceEntryId && isLinkRequestKey(resolvedKey)) {
+      return jsonError('This item asks for a link. Paste the URL instead of uploading a file.', 400, {
+        code: 'LINK_SLOT_FILE',
+        correlationId,
+        clientItemId,
+        questionKey: resolvedKey,
+      })
     }
 
     const slotCheck = await assertCandidateSlotAllowed({

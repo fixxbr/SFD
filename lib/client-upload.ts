@@ -1,6 +1,6 @@
 'use client'
 
-import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB, UPLOAD_CHUNK_BYTES } from '@/lib/upload-validation'
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB, UPLOAD_CHUNK_BYTES, validateCandidateUploadFile } from '@/lib/upload-validation'
 
 async function readError(res: Response): Promise<string> {
   const text = await res.text().catch(() => '')
@@ -54,6 +54,13 @@ export async function uploadFileToApi(input: {
   if (input.file.size > MAX_UPLOAD_BYTES) {
     throw new Error(`This file exceeds the maximum allowed size of ${MAX_UPLOAD_MB} MB.`)
   }
+  // Same PDF / DOC / DOCX / JPG / JPEG rule the server enforces — fail before sending bytes.
+  const check = validateCandidateUploadFile({
+    filename: input.file.name,
+    size: input.file.size,
+    mimeType: input.file.type,
+  })
+  if (!check.ok) throw new Error(check.error)
 
   const fields = input.fields || {}
 

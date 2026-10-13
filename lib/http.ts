@@ -4,6 +4,7 @@ import { AuthError } from '@/lib/auth'
 import { BRAND_DOMAIN } from '@/lib/brand'
 import { RbacError } from '@/lib/rbac'
 import { StorageError } from '@/lib/storage'
+import { LinkValidationError } from '@/lib/link-request-items'
 
 const LEGACY_BRAND_DOMAIN = 'lawfirm.ai'
 
@@ -39,6 +40,7 @@ export function handleApiError(error: unknown) {
   if (error instanceof AuthError) return jsonError(error.message, error.status)
   if (error instanceof RbacError) return jsonError('You do not have permission to do that.', 403)
   if (error instanceof AssignLawyerError) return jsonError(error.message, error.status)
+  if (error instanceof LinkValidationError) return jsonError(error.message, 400)
   if (error instanceof StorageError) {
     console.error('[storage-api]', error.message)
     return jsonError(error.message, error.status || 400)
@@ -64,6 +66,12 @@ export function handleApiError(error: unknown) {
       'Enter a valid URL',
       'Only http:// and https://',
       'Please submit a single URL',
+      'A URL is required',
+      'A URL cannot contain spaces',
+      'This looks like a file name',
+      'Links cannot include',
+      'Enter a complete URL',
+      'This link is already saved',
       'Add a description for each file',
       'Description must be at least',
       'Description must be 1000',

@@ -2,6 +2,7 @@ import { isLinkRequestKey } from '@/lib/link-request-items'
 import { validateHttpUrl } from '@/lib/link-request-items'
 
 export type DocumentLinkLike = {
+  externalUrl?: string | null
   mimeType?: string | null
   originalFilename?: string | null
   displayName?: string | null
@@ -14,6 +15,7 @@ const URL_IN_TEXT = /https?:\/\/[^\s<>"']+/gi
 
 /** True when this CaseDocument stores one or more external URLs as text. */
 export function isExternalLinkDocument(doc: DocumentLinkLike): boolean {
+  if (doc.externalUrl) return true
   const filename = (doc.originalFilename || '').toLowerCase()
   const mime = (doc.mimeType || '').toLowerCase()
   if (filename.endsWith('.url.txt') || filename.endsWith('.url')) return true
@@ -45,6 +47,15 @@ export function extractExternalUrls(input: {
     }
   }
   return [...new Set(found)]
+}
+
+/** URLs for a link row: the saved externalUrl, else legacy URLs parsed from metadata. */
+export function linkUrlsForDocument(doc: DocumentLinkLike): string[] {
+  if (doc.externalUrl) {
+    const check = validateHttpUrl(doc.externalUrl)
+    return check.ok ? [check.href] : []
+  }
+  return extractExternalUrls({ displayName: doc.displayName, description: doc.description })
 }
 
 /** Short host + path for display (no protocol clutter). */

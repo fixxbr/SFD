@@ -5,9 +5,10 @@ import { handleApiError, jsonError, assertSameOrigin } from '@/lib/http'
 import { resolveAllowedMimeType, validateCandidateUploadFile } from '@/lib/upload-validation'
 import { uploadCaseDocument } from '@/lib/documents'
 import { markMatchingRequestItemsUploaded } from '@/lib/sync-request-status'
-import { questionByKey } from '@/lib/onboarding-catalog'
 import { sectionMeta } from '@/lib/evidence-entries'
 import { assertCanAccessCase, isLawyerUser } from '@/lib/lawyer-access'
+import { isLinkRequestKey } from '@/lib/link-request-items'
+import { resolveDocumentCategory, resolveDocumentType } from '@/lib/document-keys'
 
 export async function POST(request: Request) {
   try {
@@ -50,6 +51,9 @@ export async function POST(request: Request) {
 
     if (!candidateId || !caseId) return jsonError('Candidate and case are required.')
     if (!questionKey && !evidenceEntryId) return jsonError('Document type or evidence entry is required.')
+    if (questionKey && isLinkRequestKey(questionKey)) {
+      return jsonError('This item is a link. Add it in the Links section as a URL instead of uploading a file.')
+    }
 
     const check = validateCandidateUploadFile({
       filename,
@@ -81,7 +85,6 @@ export async function POST(request: Request) {
       resolvedType = resolvedType || meta.questionKeyPrefix
     }
 
-    const mapped = questionByKey(resolvedKey)
     const mimeType =
       resolveAllowedMimeType({ mimeType: mimeTypeRaw, filename }) || check.mimeType
     const { validateDocumentDescription } = await import('@/lib/document-description')
@@ -93,8 +96,8 @@ export async function POST(request: Request) {
       caseId,
       onboardingSubmissionId: record.onboardingSubmissions[0]?.id,
       questionKey: resolvedKey,
-      category: resolvedCategory || mapped?.category.id,
-      documentType: resolvedType || mapped?.question.documentType,
+      category: resolvedCategory || resolveDocumentCategory(resolvedKey),
+      documentType: resolvedType || resolveDocumentType(resolvedKey),
       file: { buffer, mimeType, filename, size: buffer.byteLength },
       uploadedByType: lawyerUpload ? 'LAWYER' : 'ADMIN',
       uploadedById: user.id,

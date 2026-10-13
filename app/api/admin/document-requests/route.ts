@@ -9,7 +9,7 @@ import {
   type DocRequestType,
   type RequestBuilderItem,
 } from '@/lib/document-requests'
-import { getActiveVisaTemplate, caseVisaToCode } from '@/lib/visa-templates'
+import { resolveVisaTemplate, caseVisaToCode } from '@/lib/visa-templates'
 import { resolveCandidateUploadUrl } from '@/lib/candidate-upload-url'
 import { additionalDocumentKey } from '@/lib/document-requirement-status'
 import { reconcileRequestItemsForCandidate } from '@/lib/sync-request-status'
@@ -38,7 +38,7 @@ export async function GET(request: Request) {
     await reconcileRequestItemsForCandidate(caseRow.candidate.id)
 
     const visaCode = caseVisaToCode(caseRow.visaType)
-    const template = await getActiveVisaTemplate(visaCode)
+    const template = await resolveVisaTemplate(visaCode)
     const recent = await prisma.documentRequest.findMany({
       where: { caseId },
       orderBy: { sentAt: 'desc' },
