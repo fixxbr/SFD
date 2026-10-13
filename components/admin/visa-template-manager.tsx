@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { isLinkRequestKey, looksLikeLinkRequest } from '@/lib/link-request-items'
 
 const btn = 'rounded border border-[#D7DEE6] px-3 py-1.5 text-xs hover:bg-[#F3F5F7]'
 const primary = 'rounded bg-[#0C2340] px-3 py-1.5 text-xs font-medium text-white'
@@ -31,6 +32,9 @@ export function VisaTemplateManager() {
   const [docName, setDocName] = useState('')
   const [category, setCategory] = useState('Additional Evidence')
   const [instructions, setInstructions] = useState('')
+  // null = follow the name (LinkedIn, portfolio, website… default to a URL field).
+  const [itemKind, setItemKind] = useState<'file' | 'url' | null>(null)
+  const effectiveKind = itemKind ?? (looksLikeLinkRequest(docName) ? 'url' : 'file')
   const [message, setMessage] = useState('')
 
   async function load(visaCode = code) {
@@ -70,6 +74,7 @@ export function VisaTemplateManager() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         action: 'add-item',
+        inputKind: effectiveKind,
         templateId: template.id,
         category,
         documentName: docName,
@@ -82,6 +87,7 @@ export function VisaTemplateManager() {
     }
     setDocName('')
     setInstructions('')
+    setItemKind(null)
     await load(code)
   }
 
@@ -150,7 +156,12 @@ export function VisaTemplateManager() {
             {template.items.map((item) => (
               <li key={item.id} className="flex flex-wrap items-start justify-between gap-2 py-2">
                 <div>
-                  <p className="font-medium">{item.documentName}</p>
+                  <p className="font-medium">
+                    {item.documentName}
+                    <span className="ml-2 rounded bg-[#F1F5F9] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[#475569]">
+                      {isLinkRequestKey(item.documentKey) ? 'URL' : 'File'}
+                    </span>
+                  </p>
                   <p className="text-xs text-[#5B6B7C]">
                     {item.category}
                     {item.defaultRequired ? ' · Required' : ' · Optional'}
@@ -163,8 +174,17 @@ export function VisaTemplateManager() {
               </li>
             ))}
           </ul>
-          <div className="grid gap-2 border-t border-[#EEF1F4] pt-3 md:grid-cols-4">
+          <div className="grid gap-2 border-t border-[#EEF1F4] pt-3 md:grid-cols-5">
             <input className={input} placeholder="Document name" value={docName} onChange={(e) => setDocName(e.target.value)} />
+            <select
+              className={input}
+              aria-label="Item type"
+              value={effectiveKind}
+              onChange={(e) => setItemKind(e.target.value as 'file' | 'url')}
+            >
+              <option value="file">File upload (PDF, DOC, DOCX, JPG)</option>
+              <option value="url">Link (URL)</option>
+            </select>
             <input className={input} placeholder="Category" value={category} onChange={(e) => setCategory(e.target.value)} />
             <input className={input} placeholder="Instructions" value={instructions} onChange={(e) => setInstructions(e.target.value)} />
             <button type="button" className={primary} onClick={() => void addItem()}>

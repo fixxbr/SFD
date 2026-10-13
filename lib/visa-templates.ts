@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db'
 import { randomUUID } from 'crypto'
 import type { VisaType } from '@prisma/client'
 import { SEED_VISA_TEMPLATES } from '@/lib/visa-template-seed-data'
+import { toLinkRequestKey } from '@/lib/link-request-items'
 
 export type ResolvedTemplateItem = {
   id: string
@@ -99,8 +100,10 @@ export async function addTemplateItem(input: {
   instructions?: string
   defaultRequired?: boolean
   allowsMultipleFiles?: boolean
+  /** 'url' makes this a link item (candidate pastes a URL; never a file upload). */
+  inputKind?: 'file' | 'url'
 }) {
-  const key =
+  const baseKey =
     input.documentKey ||
     input.documentName
       .toLowerCase()
@@ -108,6 +111,7 @@ export async function addTemplateItem(input: {
       .replace(/^_|_$/g, '')
       .slice(0, 48) ||
     `custom_${Date.now()}`
+  const key = input.inputKind === 'url' ? toLinkRequestKey(baseKey) : baseKey
 
   const max = await prisma.visaDocumentTemplateItem.aggregate({
     where: { templateId: input.templateId },

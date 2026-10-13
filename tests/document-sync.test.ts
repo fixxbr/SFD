@@ -4,7 +4,15 @@ import { countChecklist, missingChecklistItems, requirementItems } from '@/lib/d
 import { buildOnboardingOverview } from '@/lib/onboarding-overview'
 import { isAdditionalEvidenceKey } from '@/lib/document-keys'
 import { SEED_VISA_TEMPLATES } from '@/lib/visa-template-seed-data'
-import { LINK_ONLY_ERROR, looksLikeFileName, validateHttpUrl } from '@/lib/link-request-items'
+import {
+  isLinkRequestKey,
+  LINK_ONLY_ERROR,
+  looksLikeFileName,
+  looksLikeLinkRequest,
+  normalizeRequestItemKind,
+  resolveLinkInputKind,
+  validateHttpUrl,
+} from '@/lib/link-request-items'
 import { isExternalLinkDocument, linkUrlsForDocument } from '@/lib/document-links'
 import { validateCandidateUploadFile } from '@/lib/upload-validation'
 
@@ -55,7 +63,9 @@ describe('one checklist for Overview, Documents and Request Documents', () => {
       const checklist = buildChecklist(documents, [], { templateItems: template.items })
       const counts = countChecklist(checklist)
 
-      const requiredKeys = template.items.filter((i) => !isAdditionalEvidenceKey(i.documentKey)).map((i) => i.documentKey)
+      const requiredKeys = template.items
+        .filter((i) => !isAdditionalEvidenceKey(i.documentKey) && !isLinkRequestKey(i.documentKey))
+        .map((i) => i.documentKey)
       expect(requirementItems(checklist).map((i) => i.questionKey)).toEqual(requiredKeys)
       expect(counts.required).toBe(requiredKeys.length)
       expect(counts.submitted).toBe(1)
@@ -175,5 +185,62 @@ describe('document uploads accept PDF, DOC, DOCX, JPG and JPEG only', () => {
     ['noext', ''],
   ])('rejects %s', (filename, mimeType) => {
     expect(validateCandidateUploadFile({ filename, size: 10, mimeType }).ok).toBe(false)
+  })
+})
+
+describe('recommended documents (approved, optional)', () => {
+  const keysFor = (code: string) => SEED_VISA_TEMPLATES.find((t) => t.visaTypeCode === code)!.items
+  it.each([
+    ['O_1A', ['recommendation_letters', 'advisory_opinion', 'contract', 'itinerary']],
+    ['O_1B', ['advisory_opinion', 'contract', 'itinerary', 'testimonial_letters', 'distinguished_org_evidence', 'high_salary', 'i94_history', 'recommendation_letters']],
+    ['EB_1A', ['continuing_work', 'citations', 'exhibitions', 'commercial_success', 'current_visa', 'i797', 'recommendation_letters', 'civil_documents']],
+    ['EB_2_NIW', ['experience_letters', 'funding_evidence', 'business_plan', 'recommendation_letters', 'civil_documents']],
+    ['H_1B', ['lca', 'registration_notice', 'end_client_letter', 'professional_license', 'recommendation_letters']],
+    ['L_1A', ['i94', 'current_visa', 'i797', 'financial_statements', 'new_office_docs', 'blanket_l', 'recommendation_letters']],
+    ['L_1B', ['i94', 'current_visa', 'i797', 'financial_statements', 'new_office_docs', 'blanket_l', 'training_records', 'recommendation_letters']],
+    ['EB_5', ['capital_transfer', 'subscription_agreement', 'civil_documents', 'recommendation_letters']],
+    ['OTHER', ['recommendation_letters']],
+  ])('%s has the approved additions, all optional', (code, keys) => {
+    const items = keysFor(code)
+    for (const key of keys) {
+      const item = items.find((i) => i.documentKey === key)
+      expect(item, `${code}:${key}`).toBeTruthy()
+      expect(item!.defaultRequired).toBe(false)
+    }
+    expect(new Set(items.map((i) => i.documentKey)).size).toBe(items.length)
+  })
+
+  it('makes the O-1B portfolio a link item that never counts as a document', () => {
+    const o1b = keysFor('O_1B')
+    expect(o1b.some((i) => i.documentKey === 'portfolio')).toBe(false)
+    const checklist = buildChecklist([], [], { templateItems: o1b })
+    expect(requirementItems(checklist).some((i) => i.questionKey === 'link_portfolio')).toBe(false)
+  })
+
+  it('files signed onboarding letters under the signed-letters slot, not the contacts slot', () => {
+    const checklist = buildChecklist([doc('letter', 'existing_letters')], [], { templateItems: keysFor('EB_1A') })
+    const items = checklist.folders.flatMap((f) => f.items)
+    expect(items.find((i) => i.questionKey === 'recommendation_letters')?.files.map((f) => f.id)).toEqual(['letter'])
+    expect(items.find((i) => i.questionKey === 'recommenders')?.files).toEqual([])
+  })
+})
+
+describe('link requests are URL fields, never document uploads', () => {
+  it('defaults LinkedIn / portfolio / website names to a URL field', () => {
+    for (const name of ['LinkedIn profile', 'Portfolio', 'Personal website', 'Google Scholar profile', 'GitHub', 'Press article link', 'IMDb page']) {
+      expect(looksLikeLinkRequest(name), name).toBe(true)
+    }
+    for (const name of ['Passport', 'Offer letter', 'Bank statements', 'Award certificates']) {
+      expect(looksLikeLinkRequest(name), name).toBe(false)
+    }
+  })
+
+  it('gives every URL item a link_ key so candidates see a URL field', () => {
+    expect(normalizeRequestItemKind({ key: 'custom_123', inputKind: 'url' })).toEqual({ key: 'link_123', inputKind: 'url' })
+    expect(normalizeRequestItemKind({ key: 'portfolio', inputKind: 'urls' })).toEqual({ key: 'link_portfolio', inputKind: 'urls' })
+    expect(normalizeRequestItemKind({ key: 'link_portfolio', inputKind: 'file' })).toEqual({ key: 'link_portfolio', inputKind: 'url' })
+    expect(normalizeRequestItemKind({ key: 'linkedin_url' })).toEqual({ key: 'linkedin_url', inputKind: 'url' })
+    expect(normalizeRequestItemKind({ key: 'passport', inputKind: 'file' })).toEqual({ key: 'passport', inputKind: 'file' })
+    expect(resolveLinkInputKind('link_portfolio')).toBe('url')
   })
 })

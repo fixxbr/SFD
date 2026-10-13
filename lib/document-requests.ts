@@ -14,6 +14,7 @@ import { resolveCandidateUploadUrl, getCandidateUploadUrl } from '@/lib/candidat
 import { formatVisa } from '@/lib/visa'
 import { ActivityType, logActivity } from '@/lib/activity'
 import { caseVisaToCode, getActiveVisaTemplate, SEED_TEMPLATE_ITEM_PREFIX } from '@/lib/visa-templates'
+import { normalizeRequestItemKind } from '@/lib/link-request-items'
 import { randomUUID } from 'crypto'
 import type { VisaType } from '@prisma/client'
 
@@ -72,6 +73,8 @@ export async function createDocumentRequestPackage(input: {
   })
   if (!record) throw new Error('Case not found')
   if (!input.items.length) throw new Error('Select at least one document to request.')
+  // Link items (LinkedIn, portfolio, …) must be URL fields for the candidate, never file uploads.
+  input = { ...input, items: input.items.map((item) => normalizeRequestItemKind(item)) }
 
   const visaCode = caseVisaToCode(record.visaType)
   const visaLabel = formatVisa(record.visaType as VisaType)

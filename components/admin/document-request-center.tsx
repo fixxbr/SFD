@@ -9,11 +9,47 @@ import { UPLOAD_ACCEPT, UPLOAD_TYPE_HINT, validateCandidateUploadFile } from '@/
 import type { DocumentCounts } from '@/lib/document-counts'
 import { DocumentCountsBar } from '@/components/admin/document-counts-bar'
 import {
+  isLinkRequestKey,
+  looksLikeLinkRequest,
   PROFILE_LINK_CATEGORY,
   PROFILE_LINK_OPTIONS,
   slugLinkKey,
   type LinkInputKind,
 } from '@/lib/link-request-items'
+
+/** File upload or URL field — chosen per item; names like LinkedIn / portfolio default to URL. */
+function KindPicker({
+  value,
+  onChange,
+}: {
+  value: 'file' | 'url'
+  onChange: (next: 'file' | 'url') => void
+}) {
+  return (
+    <div className="flex flex-wrap gap-3 text-xs" role="radiogroup" aria-label="Request type">
+      <label className="flex items-center gap-1.5">
+        <input type="radio" checked={value === 'file'} onChange={() => onChange('file')} />
+        Document file (PDF, DOC, DOCX, JPG)
+      </label>
+      <label className="flex items-center gap-1.5">
+        <input type="radio" checked={value === 'url'} onChange={() => onChange('url')} />
+        Link (URL)
+      </label>
+    </div>
+  )
+}
+
+function KindBadge({ link }: { link: boolean }) {
+  return (
+    <span
+      className={`ml-2 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${
+        link ? 'bg-[#CCFBF1] text-[#0F766E]' : 'bg-[#F1F5F9] text-[#475569]'
+      }`}
+    >
+      {link ? 'URL' : 'File'}
+    </span>
+  )
+}
 
 type TemplateItem = {
   id: string
@@ -48,7 +84,7 @@ type RecentRequest = {
   secureUrl: string | null
   sentAt: string
   sentBy?: { fullName: string } | null
-  items: Array<{ id: string; documentName: string; status: string; category: string }>
+  items: Array<{ id: string; documentKey?: string; documentName: string; status: string; category: string }>
 }
 
 const btn = 'rounded border border-[#D7DEE6] px-3 py-1.5 text-xs font-medium hover:bg-white'
@@ -90,6 +126,11 @@ export function DocumentRequestCenter({
   const [customName, setCustomName] = useState('')
   const [customCategory, setCustomCategory] = useState('Additional Evidence')
   const [customInstructions, setCustomInstructions] = useState('')
+  // null = follow the name; LinkedIn / portfolio / website… default to a URL field.
+  const [customKind, setCustomKind] = useState<'file' | 'url' | null>(null)
+  const [singleKind, setSingleKind] = useState<'file' | 'url' | null>(null)
+  const customKindValue = customKind ?? (looksLikeLinkRequest(customName) ? 'url' : 'file')
+  const singleKindValue = singleKind ?? (looksLikeLinkRequest(singleName) ? 'url' : 'file')
   const [saveToTemplate, setSaveToTemplate] = useState(false)
   const [linkSelected, setLinkSelected] = useState<Record<string, boolean>>({})
   const [extraLinkLabel, setExtraLinkLabel] = useState('')
@@ -207,11 +248,13 @@ export function DocumentRequestCenter({
       const tmpl = templateItems.find((t) => t.documentName === item.documentName || t.documentKey === item.documentName)
       if (tmpl) next[tmpl.documentKey] = true
       else {
+        const link = Boolean(item.documentKey && isLinkRequestKey(item.documentKey))
         customs.push({
-          key: `custom_${item.id}`,
+          key: link ? item.documentKey! : `custom_${item.id}`,
           label: item.documentName,
           category: item.category,
           source: 'custom',
+          inputKind: link ? 'url' : 'file',
         })
       }
     }
@@ -224,16 +267,17 @@ export function DocumentRequestCenter({
   function buildItems(): RequestItem[] {
     if (requestType === 'SINGLE') {
       if (!singleName.trim()) return [...linkItems]
+      const link = singleKindValue === 'url'
       return [
         {
-          key: `custom_${crypto.randomUUID().slice(0, 12)}`,
+          key: link ? slugLinkKey(singleName.trim()) : `custom_${crypto.randomUUID().slice(0, 12)}`,
           label: singleName.trim(),
-          category: customCategory || 'Additional Evidence',
-          instructions: singleNote,
+          category: link ? PROFILE_LINK_CATEGORY : customCategory || 'Additional Evidence',
+          instructions: singleNote || (link ? `Paste the full URL for: ${singleName.trim()}` : ''),
           required: true,
           allowsMultipleFiles: true,
-          source: 'custom',
-          inputKind: 'file',
+          source: link ? 'link' : 'custom',
+          inputKind: link ? 'url' : 'file',
         },
         ...linkItems,
       ]
@@ -255,7 +299,7 @@ export function DocumentRequestCenter({
         allowsMultipleFiles: true,
         templateItemId: i.id.startsWith('seed:') ? null : i.id,
         source: 'template' as const,
-        inputKind: 'file' as const,
+        inputKind: isLinkRequestKey(i.documentKey) ? ('url' as const) : ('file' as const),
       }))
     return [...fromTemplate, ...current.filter((c) => c.source === 'custom'), ...linkItems]
   }
@@ -283,20 +327,24 @@ export function DocumentRequestCenter({
 
   function addCustomToRequest() {
     if (!customName.trim()) return
+    const label = customName.trim()
+    const link = customKindValue === 'url'
     setCurrent((prev) => [
       ...prev,
       {
-        key: `custom_${Date.now()}`,
-        label: customName.trim(),
-        category: customCategory || 'Additional Evidence',
-        instructions: customInstructions,
+        key: link ? slugLinkKey(label) : `custom_${Date.now()}`,
+        label,
+        category: link ? PROFILE_LINK_CATEGORY : customCategory || 'Additional Evidence',
+        instructions: customInstructions || (link ? `Paste the full URL for: ${label}` : ''),
         required: false,
         allowsMultipleFiles: true,
         source: 'custom',
+        inputKind: link ? 'url' : 'file',
       },
     ])
     setCustomName('')
     setCustomInstructions('')
+    setCustomKind(null)
   }
 
   async function maybeSaveCustomToTemplate(items: RequestItem[]) {
@@ -311,6 +359,7 @@ export function DocumentRequestCenter({
           category: item.category,
           documentName: item.label,
           instructions: item.instructions,
+          inputKind: item.inputKind === 'url' || item.inputKind === 'urls' ? 'url' : 'file',
         }),
       })
     }
@@ -401,7 +450,8 @@ export function DocumentRequestCenter({
     }
   }
 
-  async function requestReplacement(item: { documentName: string; category: string }) {
+  async function requestReplacement(item: { documentKey?: string; documentName: string; category: string }) {
+    const link = Boolean(item.documentKey && isLinkRequestKey(item.documentKey))
     const reason = prompt(`Replacement reason for ${item.documentName}`)
     if (reason === null) return
     if (!candidate.email?.trim()) {
@@ -418,12 +468,14 @@ export function DocumentRequestCenter({
           requestType: 'SINGLE',
           items: [
             {
-              key: `custom_${crypto.randomUUID().slice(0, 12)}`,
+              key: link ? item.documentKey! : `custom_${crypto.randomUUID().slice(0, 12)}`,
               label: item.documentName,
               category: item.category || 'Additional Evidence',
-              instructions: reason || 'Please upload a clearer or complete replacement copy.',
+              instructions:
+                reason || (link ? 'Please send an updated link.' : 'Please upload a clearer or complete replacement copy.'),
               required: true,
-              source: 'custom',
+              source: link ? 'link' : 'custom',
+              inputKind: link ? 'url' : 'file',
             },
           ],
           documentName: item.documentName,
@@ -653,7 +705,10 @@ export function DocumentRequestCenter({
                               setSelected((prev) => ({ ...prev, [item.documentKey]: !prev[item.documentKey] }))
                             }
                           />
-                          <span>{item.documentName}</span>
+                          <span>
+                            {item.documentName}
+                            <KindBadge link={isLinkRequestKey(item.documentKey)} />
+                          </span>
                         </label>
                       ))}
                     </div>
@@ -662,15 +717,17 @@ export function DocumentRequestCenter({
               ))}
             {requestType === 'SINGLE' && (
               <div className="space-y-2">
-                <input className={input} placeholder="Document name" value={singleName} onChange={(e) => setSingleName(e.target.value)} />
+                <input className={input} placeholder="Document or link name" value={singleName} onChange={(e) => setSingleName(e.target.value)} />
+                <KindPicker value={singleKindValue} onChange={setSingleKind} />
                 <textarea className={input} rows={3} placeholder="Instructions" value={singleNote} onChange={(e) => setSingleNote(e.target.value)} />
               </div>
             )}
             {(requestType === 'CUSTOM' || requestType === 'SELECTED' || requestType === 'FULL') && (
               <div className="rounded-lg border border-dashed border-[#94A3B8] bg-[#F8FAFC] p-4">
-                <p className="mb-3 text-sm font-semibold text-[#0F766E]">Add a new document request</p>
+                <p className="mb-3 text-sm font-semibold text-[#0F766E]">Add a new document or link request</p>
                 <div className="space-y-2">
-                  <input className={input} placeholder="Document name *" value={customName} onChange={(e) => setCustomName(e.target.value)} />
+                  <input className={input} placeholder="Document or link name *" value={customName} onChange={(e) => setCustomName(e.target.value)} />
+                  <KindPicker value={customKindValue} onChange={setCustomKind} />
                   <input className={input} placeholder="Category" value={customCategory} onChange={(e) => setCustomCategory(e.target.value)} />
                   <textarea className={input} rows={2} placeholder="Instructions" value={customInstructions} onChange={(e) => setCustomInstructions(e.target.value)} />
                   <label className="flex items-center gap-2 text-xs">
@@ -767,9 +824,8 @@ export function DocumentRequestCenter({
                 <li key={item.key} className="flex items-center justify-between gap-2 border-b border-[#EEF1F4] py-1">
                   <span>
                     ✓ {item.label}
-                    <span className="ml-2 text-[10px] uppercase text-[#5B6B7C]">
-                      {item.inputKind === 'url' || item.inputKind === 'urls' ? 'link' : item.category}
-                    </span>
+                    <KindBadge link={item.inputKind === 'url' || item.inputKind === 'urls'} />
+                    <span className="ml-2 text-[10px] uppercase text-[#5B6B7C]">{item.category}</span>
                   </span>
                   {(item.source === 'custom' || item.source === 'link') && (
                     <button
@@ -929,14 +985,20 @@ export function DocumentRequestCenter({
                   if (item || customItem) setAdminCategory(item?.category || customItem?.category || 'Additional Evidence')
                 }}>
                   <option value="">Choose a document type</option>
-                  {categories.map(([category, items]) => (
-                    <optgroup key={category} label={category}>
-                      {items.map((item) => <option key={item.id} value={item.documentKey}>{item.documentName}</option>)}
-                    </optgroup>
-                  ))}
+                  {/* Link items are URLs, not files — they are added in Overview → Links. */}
+                  {categories
+                    .map(([category, items]) => [category, items.filter((item) => !isLinkRequestKey(item.documentKey))] as const)
+                    .filter(([, items]) => items.length > 0)
+                    .map(([category, items]) => (
+                      <optgroup key={category} label={category}>
+                        {items.map((item) => <option key={item.id} value={item.documentKey}>{item.documentName}</option>)}
+                      </optgroup>
+                    ))}
                   {customDocumentDefs.length > 0 && (
                     <optgroup label="Custom document types">
-                      {customDocumentDefs.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
+                      {customDocumentDefs
+                        .filter((item) => !isLinkRequestKey(item.key))
+                        .map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
                     </optgroup>
                   )}
                   <option value="__custom__">New document type…</option>
@@ -1026,7 +1088,9 @@ export function DocumentRequestCenter({
                 {req.items.map((item) => (
                   <li key={item.id} className="flex items-center justify-between gap-2 rounded bg-[#F8FAFC] px-2 py-1">
                     <span>
-                      {item.documentName} · <span className="font-semibold">{item.status}</span>
+                      {item.documentName}
+                      <KindBadge link={Boolean(item.documentKey && isLinkRequestKey(item.documentKey))} /> ·{' '}
+                      <span className="font-semibold">{item.status}</span>
                     </span>
                     {canWrite && (item.status === 'UPLOADED' || item.status === 'NEEDS_REPLACEMENT') && (
                       <button
@@ -1034,6 +1098,7 @@ export function DocumentRequestCenter({
                         className="text-[11px] text-[#0F766E] underline"
                         onClick={() =>
                           void requestReplacement({
+                            documentKey: item.documentKey,
                             documentName: item.documentName,
                             category: item.category,
                           })

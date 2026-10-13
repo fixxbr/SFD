@@ -118,6 +118,38 @@ export function validateHttpUrl(value: string): { ok: true; href: string } | { o
   return { ok: true, href: parsed.toString() }
 }
 
+/** Names that describe a web link rather than a document (LinkedIn, portfolio, website…). */
+const LINK_LABEL_PATTERN =
+  /\b(linked\s?in|github|git\s?hub|portfolio|website|web\s?site|web\s?page|url|urls|link|links|online profile|profile page|google scholar|scholar profile|orcid|researchgate|imdb|youtube|vimeo|behance|dribbble|social media)\b/i
+
+/** Default input type for a new request item: a URL field when the name describes a link. */
+export function looksLikeLinkRequest(label: string): boolean {
+  return LINK_LABEL_PATTERN.test(label)
+}
+
+/** Keys the whole app treats as URL fields: known profile keys or the `link_` prefix. */
+export function toLinkRequestKey(key: string): string {
+  const trimmed = key.trim()
+  if (isLinkRequestKey(trimmed)) return trimmed
+  const base = trimmed.replace(/^(custom_|link_)/, '').replace(/[^a-zA-Z0-9_]+/g, '_').replace(/^_|_$/g, '')
+  return `link_${base || Date.now().toString(36)}`
+}
+
+/**
+ * Make a request item's key and input type agree: a link item always gets a
+ * `link_` key (so the candidate sees a URL field and it is saved as a link),
+ * and a `link_` key is never offered as a file upload.
+ */
+export function normalizeRequestItemKind<T extends { key: string; inputKind?: 'file' | 'url' | 'urls' | null }>(
+  item: T,
+): T & { inputKind: 'file' | 'url' | 'urls' } {
+  const wantsLink = item.inputKind === 'url' || item.inputKind === 'urls' || isLinkRequestKey(item.key)
+  if (!wantsLink) return { ...item, inputKind: 'file' }
+  const key = toLinkRequestKey(item.key)
+  const inputKind = item.inputKind === 'urls' ? 'urls' : resolveLinkInputKind(key, item.inputKind ?? null)
+  return { ...item, key, inputKind: inputKind === 'file' ? 'url' : inputKind }
+}
+
 export function slugLinkKey(label: string) {
   const slug =
     label

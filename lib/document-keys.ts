@@ -42,9 +42,11 @@ export const DOCUMENT_KEY_ALIASES: Record<string, string[]> = {
   speaking_evidence: ['speaking'],
   employment_letter: ['offer_letter'],
   offer_letter: ['employment_letter'],
-  recommender_contacts: ['existing_letters', 'recommenders'],
-  recommenders: ['recommender_contacts', 'existing_letters'],
-  existing_letters: ['recommender_contacts', 'recommenders'],
+  recommender_contacts: ['recommenders'],
+  recommenders: ['recommender_contacts'],
+  // Signed letters already uploaded in onboarding belong to the signed-letters slot, not contacts.
+  existing_letters: ['recommendation_letters'],
+  recommendation_letters: ['existing_letters'],
   // EB-1A / NIW / L-1 / EB-5 template keys ↔ onboarding catalog keys
   status_docs: ['immigration_status_docs'],
   immigration_status_docs: ['status_docs'],
@@ -57,6 +59,11 @@ export const DOCUMENT_KEY_ALIASES: Record<string, string[]> = {
   additional_files: ['additional_evidence', 'additional', 'other_supporting_document'],
   additional: ['additional_evidence', 'additional_files', 'other_supporting_document'],
   other_supporting_document: ['additional_evidence', 'additional_files', 'additional'],
+}
+
+/** Names for retired template keys so files uploaded under them keep a readable label. */
+const LEGACY_DOCUMENT_LABELS: Record<string, string> = {
+  portfolio: 'Portfolio / demo reel',
 }
 
 let cachedTemplateKeys: Set<string> | null = null
@@ -177,6 +184,7 @@ export function canonicalDocumentLabel(key: string, customDefs: DocumentLabelDef
   }
   const profile = PROFILE_LINK_OPTIONS.find((o) => o.key === trimmed)
   if (profile) return profile.label
+  if (LEGACY_DOCUMENT_LABELS[trimmed]) return LEGACY_DOCUMENT_LABELS[trimmed]
   return trimmed.replace(/^lawyer_upload_/, '').replaceAll('_', ' ') || 'Uploaded file'
 }
 

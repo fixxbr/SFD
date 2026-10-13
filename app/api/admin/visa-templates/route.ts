@@ -52,6 +52,7 @@ export async function POST(request: Request) {
       allowsMultipleFiles?: boolean
       itemId?: string
       patch?: Record<string, unknown>
+      inputKind?: 'file' | 'url'
     }
 
     if (body.action === 'create-visa') {
@@ -82,6 +83,7 @@ export async function POST(request: Request) {
         defaultRequired: body.defaultRequired,
         // Every document request supports multiple files — no single-file exceptions.
         allowsMultipleFiles: true,
+        inputKind: body.inputKind === 'url' ? 'url' : 'file',
       })
       return NextResponse.json({ item })
     }
