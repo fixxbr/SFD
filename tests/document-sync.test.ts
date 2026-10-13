@@ -244,3 +244,15 @@ describe('link requests are URL fields, never document uploads', () => {
     expect(resolveLinkInputKind('link_portfolio')).toBe('url')
   })
 })
+
+describe('real-world links that must save', () => {
+  it('accepts long tracking URLs and internationalized domains', () => {
+    const long = `https://www.linkedin.com/in/someone?${'utm_source=share&'.repeat(70)}`
+    expect(long.length).toBeGreaterThan(1000)
+    expect(validateHttpUrl(long).ok).toBe(true)
+    expect(validateHttpUrl('https://пример.рф/profile').ok).toBe(true)
+    expect(validateHttpUrl('https://drive.google.com/file/d/1AbC/view?usp=sharing').ok).toBe(true)
+    expect(validateHttpUrl('https://docs.google.com/document/d/1AbC/edit').ok).toBe(true)
+    expect(validateHttpUrl(`https://example.com/${'a'.repeat(2100)}`).ok).toBe(false)
+  })
+})

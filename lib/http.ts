@@ -72,6 +72,7 @@ export function handleApiError(error: unknown) {
       'Links cannot include',
       'Enter a complete URL',
       'This link is already saved',
+      'Links must be',
       'Add a description for each file',
       'Description must be at least',
       'Description must be 1000',

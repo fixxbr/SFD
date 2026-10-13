@@ -74,6 +74,9 @@ const FILE_LIKE_SUFFIXES = new Set([
   'xls', 'xlsx', 'csv', 'ppt', 'pptx', 'zip',
 ])
 
+/** Browsers and servers commonly cap URLs around 2k characters. */
+export const MAX_LINK_LENGTH = 2048
+
 export const LINK_ONLY_ERROR =
   'This looks like a file name, not a link. Upload files in the Documents section; this field accepts web links (https://…) only.'
 
@@ -94,6 +97,9 @@ export function validateHttpUrl(value: string): { ok: true; href: string } | { o
   if (!trimmed) return { ok: false, error: 'A URL is required.' }
   if (looksLikeFileName(trimmed)) return { ok: false, error: LINK_ONLY_ERROR }
   if (/\s/.test(trimmed)) return { ok: false, error: 'A URL cannot contain spaces. Enter one link per line.' }
+  if (trimmed.length > MAX_LINK_LENGTH) {
+    return { ok: false, error: `Links must be ${MAX_LINK_LENGTH} characters or fewer.` }
+  }
   const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(trimmed)
   if (hasScheme && !/^https?:\/\//i.test(trimmed)) {
     return { ok: false, error: 'Only http:// and https:// links are allowed.' }
@@ -111,7 +117,8 @@ export function validateHttpUrl(value: string): { ok: true; href: string } | { o
     return { ok: false, error: 'Links cannot include a username or password.' }
   }
   const tld = parsed.hostname.split('.').pop() ?? ''
-  if (!parsed.hostname.includes('.') || !/^[a-z]{2,63}$/i.test(tld)) {
+  // Letters-only TLD, or an internationalized (punycode) TLD such as xn--p1ai.
+  if (!parsed.hostname.includes('.') || !/^([a-z]{2,63}|xn--[a-z0-9-]{1,59})$/i.test(tld)) {
     return { ok: false, error: 'Enter a complete URL with a domain name.' }
   }
   if (FILE_LIKE_SUFFIXES.has(tld.toLowerCase())) return { ok: false, error: LINK_ONLY_ERROR }

@@ -70,7 +70,8 @@ export async function createCaseLink(input: {
     uploadedByType: input.uploadedByType,
     uploadedById: input.uploadedById ?? null,
     displayName: label,
-    description: note || `Link: ${href}`,
+    // Keep the stored note short: long URLs (tracking parameters) must not trip the 1000-char note limit.
+    description: note || `Link: ${href.length > 200 ? `${href.slice(0, 197)}...` : href}`,
     actorMessage: `Link added: ${label}`,
     append: true,
     clientIdempotencyKey: input.clientIdempotencyKey ?? null,
