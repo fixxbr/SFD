@@ -1,0 +1,36 @@
+[build]
+  command = "npx pnpm@9.15.9 run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+  PNPM_VERSION = "9"
+  PNPM_FLAGS = "--no-frozen-lockfile"
+  # Brand DNS already serves this Netlify site — keep candidate links on www.
+  BRAND_DOMAIN_SERVES_APP = "true"
+  # Public site config / bootstrap labels are not deploy secrets.
+  # Demo passwords must never live in the repo (use env only).
+  SECRETS_SCAN_OMIT_KEYS = "APP_URL,NEXT_PUBLIC_APP_URL,SUPER_ADMIN_EMAIL,SUPER_ADMIN_NAME,BRAND_DOMAIN_SERVES_APP,USE_NETLIFY_BLOBS"
+  SECRETS_SCAN_OMIT_PATHS = ".env.example,scripts/**,tests/**"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# Ready for custom-domain cutover: once afterstem.ai is added in Netlify Domain management,
+# apex requests land on www so cookies + upload links stay on one host.
+[[redirects]]
+  from = "/favicon.ico"
+  to = "/favicon.png"
+  status = 200
+
+[[redirects]]
+  from = "https://afterstem.ai/*"
+  to = "https://www.afterstem.ai/:splat"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "http://afterstem.ai/*"
+  to = "https://www.afterstem.ai/:splat"
+  status = 301
+  force = true

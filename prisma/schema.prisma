@@ -1,0 +1,1195 @@
+generator client {
+  provider      = "prisma-client-js"
+  // native = local Windows/macOS/Linux; rhel = Netlify AWS Lambda runtime
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  ADMIN
+  CASE_MANAGER
+  ATTORNEY
+  FINANCE
+  READ_ONLY
+}
+
+enum AdminStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum RecordLifecycle {
+  ACTIVE
+  ARCHIVED
+}
+
+enum VisaType {
+  O_1A
+  O_1B
+  EB_1A
+  EB_2_NIW
+  EB_5
+  H_1B
+  L_1A
+  L_1B
+  OTHER
+}
+
+enum CaseStatus {
+  ASSESSMENT
+  QUALIFIED
+  ONBOARDING_NOT_SENT
+  ONBOARDING_SENT
+  ONBOARDING_IN_PROGRESS
+  ONBOARDING_SUBMITTED
+  DOCUMENT_REVIEW
+  MORE_DOCUMENTS_REQUIRED
+  EVIDENCE_BUILDING
+  ATTORNEY_REVIEW
+  PETITION_DRAFTING
+  CLIENT_REVIEW
+  READY_TO_FILE
+  FILED
+  USCIS_REVIEW
+  RFE
+  RFE_RESPONSE
+  APPROVED
+  DENIED
+  CLOSED
+}
+
+enum OnboardingStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  MORE_INFORMATION_REQUIRED
+  ACCEPTED
+}
+
+enum DocumentStatus {
+  MISSING
+  UPLOADED
+  UNDER_REVIEW
+  ACCEPTED
+  NEEDS_REPLACEMENT
+  REJECTED
+  NOT_APPLICABLE
+  ARCHIVED
+}
+
+enum EvidenceSection {
+  EDUCATION
+  TRANSCRIPT
+  EMPLOYMENT
+  LICENSE
+  CLIENT
+}
+
+enum PaymentStatus {
+  DRAFT
+  READY
+  PAYMENT_LINK_GENERATED
+  PAYMENT_LINK_SENT
+  PROCESSING
+  PAID
+  FAILED
+  EXPIRED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  WAIVED
+}
+
+enum AccessLinkPurpose {
+  ONBOARDING
+  DOCUMENT_UPLOAD
+  PAYMENT
+  CASE_UPDATE
+}
+
+enum CaseHealth {
+  ON_TRACK
+  NEEDS_ATTENTION
+  WAITING_ON_CANDIDATE
+  WAITING_ON_ATTORNEY
+  READY_FOR_NEXT_STEP
+}
+
+enum ReferralType {
+  TEAM_MEMBER
+  PARTNER
+  EXTERNAL
+  OTHER
+}
+
+enum NoteVisibility {
+  INTERNAL
+  CLIENT_VISIBLE
+}
+
+enum UploadedByType {
+  CANDIDATE
+  ADMIN
+  LAWYER
+  SYSTEM
+}
+
+enum QuestionReviewStatus {
+  PENDING
+  ACCEPTED
+  NEEDS_MORE_INFORMATION
+}
+
+model AdminUser {
+  id           String      @id @default(uuid()) @db.Uuid
+  fullName     String      @map("full_name")
+  email        String      @unique
+  passwordHash String?     @map("password_hash")
+  authProvider String      @default("password") @map("auth_provider")
+  role         AdminRole
+  status       AdminStatus @default(ACTIVE)
+  lastLoginAt  DateTime?   @map("last_login_at")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  sessions               AdminSession[]
+  assignedAsCaseManager  Case[]               @relation("CaseManager")
+  assignedAsAttorney     Case[]               @relation("Attorney")
+  quoteUpdates           Case[]               @relation("QuoteUpdater")
+  filingOverrides        Case[]               @relation("FilingOverride")
+  referrals              Case[]               @relation("ReferralAdmin")
+  notes                  CaseNote[]
+  documentComments       DocumentComment[]
+  reviewedOnboarding     O1OnboardingSubmission[] @relation("OnboardingReviewer")
+  reviewedDocuments      CaseDocument[]       @relation("DocumentReviewer")
+  createdPayments        Payment[]            @relation("PaymentCreator")
+  confirmedPayments      Payment[]            @relation("PaymentConfirmer")
+  paymentEvents          PaymentEvent[]
+  documentRequests       DocumentRequest[]
+  customDocumentDefs     CustomDocumentDef[]
+  lawyerAssignments      LawyerAssignment[]   @relation("LawyerAssignee")
+  lawyerAssignmentActors LawyerAssignment[]   @relation("LawyerAssigner")
+  auditLogs              AdminAuditLog[]
+  sentCommunications     Communication[]
+  quotedEngagements      FinancialEngagement[] @relation("EngagementQuoter")
+  quoteHistoryCreated    QuoteHistory[]        @relation("QuoteHistoryCreator")
+  paymentSchedulesCreated PaymentSchedule[]    @relation("ScheduleCreator")
+  confirmedReceipts      PaymentReceipt[]      @relation("ReceiptConfirmer")
+  createdReceipts        PaymentReceipt[]      @relation("ReceiptCreator")
+  financeEvents          FinanceEvent[]        @relation("FinanceActor")
+  backupJobs             BackupJob[]           @relation("BackupRequester")
+  restoreJobs            RestoreJob[]          @relation("RestoreRequester")
+
+  @@map("admin_users")
+}
+
+model AdminSession {
+  id        String    @id @default(uuid()) @db.Uuid
+  adminUserId String  @map("admin_user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  ipAddress String?   @map("ip_address")
+  userAgent String?   @map("user_agent")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  adminUser AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@index([adminUserId])
+  @@index([expiresAt])
+  @@map("admin_sessions")
+}
+
+model LoginAttempt {
+  id        String   @id @default(uuid()) @db.Uuid
+  email     String
+  ipAddress String   @map("ip_address")
+  success   Boolean
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([email, createdAt])
+  @@index([ipAddress, createdAt])
+  @@map("login_attempts")
+}
+
+model AdminAuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String?  @map("actor_id") @db.Uuid
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String?  @map("entity_id")
+  metadata   Json?
+  ipAddress  String?  @map("ip_address")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  actor AdminUser? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("admin_audit_logs")
+}
+
+model Candidate {
+  id                       String           @id @default(uuid()) @db.Uuid
+  candidateNumber          String           @unique @map("candidate_number")
+  fullLegalName            String           @map("full_legal_name")
+  normalizedName           String           @map("normalized_name")
+  email                    String
+  normalizedEmail          String           @map("normalized_email")
+  phone                    String?
+  dateOfBirth              DateTime?        @map("date_of_birth") @db.Date
+  nationality              String?
+  currentImmigrationStatus String?          @map("current_immigration_status")
+  currentAddress           String?          @map("current_address")
+  source                   String
+  assessmentCompleted      Boolean          @default(false) @map("assessment_completed")
+  assessmentCompletedAt    DateTime?        @map("assessment_completed_at")
+  lifecycle                RecordLifecycle  @default(ACTIVE)
+  createdAt                DateTime         @default(now()) @map("created_at")
+  updatedAt                DateTime         @updatedAt @map("updated_at")
+
+  assessments           Assessment[]
+  cases                 Case[]
+  documents             CaseDocument[]
+  evidenceEntries       EvidenceEntry[]
+  payments              Payment[]
+  paymentEvents         PaymentEvent[]
+  activities            CaseActivity[]
+  notes                 CaseNote[]
+  documentComments      DocumentComment[]
+  communications        Communication[]
+  onboardingSubmissions O1OnboardingSubmission[]
+  onboardingInvites     OnboardingInvite[]
+  accessLinks           CandidateAccessLink[]
+  documentRequests      DocumentRequest[]
+  documentRequestItems  DocumentRequestItem[]
+  customDocumentDefs    CustomDocumentDef[]
+  emailVerifications    EmailVerificationCode[]
+  submissionSessions    CandidateSubmissionSession[]
+  financialEngagements  FinancialEngagement[]
+  quoteHistory          QuoteHistory[]
+  paymentSchedules      PaymentSchedule[]
+  paymentScheduleItems  PaymentScheduleItem[]
+  paymentReceipts       PaymentReceipt[]
+  financeEvents         FinanceEvent[]
+
+  @@unique([normalizedName, normalizedEmail], name: "candidates_normalized_name_email_key")
+  @@index([normalizedEmail])
+  @@index([normalizedName])
+  @@index([lifecycle])
+  @@index([createdAt])
+  @@map("candidates")
+}
+
+model Assessment {
+  id                 String   @id @default(uuid()) @db.Uuid
+  candidateId        String   @map("candidate_id") @db.Uuid
+  submittedData      Json     @map("submitted_data")
+  result             String?
+  visaRecommendation String?  @map("visa_recommendation")
+  submittedAt        DateTime @default(now()) @map("submitted_at")
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([candidateId])
+  @@index([submittedAt])
+  @@map("assessments")
+}
+
+model Case {
+  id                       String          @id @default(uuid()) @db.Uuid
+  candidateId              String          @map("candidate_id") @db.Uuid
+  caseNumber               String          @unique @map("case_number")
+  visaType                 VisaType        @map("visa_type")
+  status                   CaseStatus      @default(ASSESSMENT)
+  lifecycle                RecordLifecycle @default(ACTIVE)
+  assignedCaseManagerId    String?         @map("assigned_case_manager_id") @db.Uuid
+  assignedAttorneyId       String?         @map("assigned_attorney_id") @db.Uuid
+  quotedAmountCents        Int?            @map("quoted_amount_cents")
+  currency                 String          @default("usd")
+  quotedAmountLockedAt     DateTime?       @map("quoted_amount_locked_at")
+  quotedAmountUpdatedById  String?         @map("quoted_amount_updated_by") @db.Uuid
+  filingPaymentOverrideAt  DateTime?       @map("filing_payment_override_at")
+  filingPaymentOverrideById String?        @map("filing_payment_override_by") @db.Uuid
+  filingPaymentOverrideReason String?      @map("filing_payment_override_reason")
+  caseHealth               CaseHealth      @default(ON_TRACK) @map("case_health")
+  referralType             ReferralType?   @map("referral_type")
+  referredByName           String?         @map("referred_by_name")
+  referredByAdminId        String?         @map("referred_by_admin_id") @db.Uuid
+  referredAt               DateTime?       @map("referred_at")
+  referralNote             String?         @map("referral_note")
+  openedAt                 DateTime        @default(now()) @map("opened_at")
+  filedAt                  DateTime?       @map("filed_at")
+  approvedAt               DateTime?       @map("approved_at")
+  closedAt                 DateTime?       @map("closed_at")
+  createdAt                DateTime        @default(now()) @map("created_at")
+  updatedAt                DateTime        @updatedAt @map("updated_at")
+
+  candidate              Candidate                 @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  assignedCaseManager    AdminUser?               @relation("CaseManager", fields: [assignedCaseManagerId], references: [id], onDelete: SetNull)
+  assignedAttorney       AdminUser?               @relation("Attorney", fields: [assignedAttorneyId], references: [id], onDelete: SetNull)
+  quotedAmountUpdatedBy  AdminUser?               @relation("QuoteUpdater", fields: [quotedAmountUpdatedById], references: [id], onDelete: SetNull)
+  filingPaymentOverrideBy AdminUser?              @relation("FilingOverride", fields: [filingPaymentOverrideById], references: [id], onDelete: SetNull)
+  referredByAdmin        AdminUser?               @relation("ReferralAdmin", fields: [referredByAdminId], references: [id], onDelete: SetNull)
+  onboardingSubmissions  O1OnboardingSubmission[]
+  documents              CaseDocument[]
+  evidenceEntries        EvidenceEntry[]
+  payments               Payment[]
+  paymentEvents          PaymentEvent[]
+  notes                  CaseNote[]
+  activities             CaseActivity[]
+  communications         Communication[]
+  onboardingInvites      OnboardingInvite[]
+  accessLinks            CandidateAccessLink[]
+  documentRequests       DocumentRequest[]
+  documentRequestItems   DocumentRequestItem[]
+  customDocumentDefs     CustomDocumentDef[]
+  lawyerAssignments      LawyerAssignment[]
+  submissionSessions     CandidateSubmissionSession[]
+  statusHistory          CaseStatusHistory[]
+  financialEngagement    FinancialEngagement?
+  quoteHistory           QuoteHistory[]
+  paymentSchedules       PaymentSchedule[]
+  paymentScheduleItems   PaymentScheduleItem[]
+  paymentReceipts        PaymentReceipt[]
+  financeEvents          FinanceEvent[]
+
+  @@index([candidateId])
+  @@index([caseNumber])
+  @@index([status])
+  @@index([lifecycle])
+  @@index([assignedCaseManagerId])
+  @@index([assignedAttorneyId])
+  @@map("cases")
+}
+
+model CaseStatusHistory {
+  id        String     @id @default(uuid()) @db.Uuid
+  caseId    String     @map("case_id") @db.Uuid
+  fromStatus CaseStatus? @map("from_status")
+  toStatus  CaseStatus @map("to_status")
+  changedBy String?    @map("changed_by") @db.Uuid
+  note      String?
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  case Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId])
+  @@map("case_status_history")
+}
+
+model O1OnboardingSubmission {
+  id          String           @id @default(uuid()) @db.Uuid
+  candidateId String           @map("candidate_id") @db.Uuid
+  caseId      String           @map("case_id") @db.Uuid
+  status      OnboardingStatus @default(DRAFT)
+  answers     Json             @default("{}")
+  submittedAt DateTime?        @map("submitted_at")
+  lastSavedAt DateTime?        @map("last_saved_at")
+  reviewedAt  DateTime?        @map("reviewed_at")
+  reviewedById String?         @map("reviewed_by") @db.Uuid
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  candidate  Candidate  @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  case       Case       @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  reviewedBy AdminUser? @relation("OnboardingReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  documents  CaseDocument[]
+
+  @@index([candidateId])
+  @@index([caseId])
+  @@index([status])
+  @@map("o1_onboarding_submissions")
+}
+
+model OnboardingInvite {
+  id          String    @id @default(uuid()) @db.Uuid
+  candidateId String    @map("candidate_id") @db.Uuid
+  caseId      String    @map("case_id") @db.Uuid
+  tokenHash   String    @unique @map("token_hash")
+  expiresAt   DateTime  @map("expires_at")
+  revokedAt   DateTime? @map("revoked_at")
+  usedAt      DateTime? @map("used_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  case      Case      @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([candidateId])
+  @@index([caseId])
+  @@map("onboarding_invites")
+}
+
+model EvidenceEntry {
+  id          String          @id @default(uuid()) @db.Uuid
+  candidateId String          @map("candidate_id") @db.Uuid
+  caseId      String          @map("case_id") @db.Uuid
+  section     EvidenceSection
+  title       String
+  subtitle    String?
+  description String?
+  metadata    Json            @default("{}")
+  sortOrder   Int             @default(0) @map("sort_order")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  candidate Candidate     @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  case      Case          @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  documents CaseDocument[]
+
+  @@index([candidateId])
+  @@index([caseId])
+  @@index([section])
+  @@index([caseId, section])
+  @@map("evidence_entries")
+}
+
+model CaseDocument {
+  id                    String         @id @default(uuid()) @db.Uuid
+  candidateId           String         @map("candidate_id") @db.Uuid
+  caseId                String         @map("case_id") @db.Uuid
+  onboardingSubmissionId String?       @map("onboarding_submission_id") @db.Uuid
+  evidenceEntryId       String?        @map("evidence_entry_id") @db.Uuid
+  category              String
+  documentType          String         @map("document_type")
+  questionKey           String         @map("question_key")
+  originalFilename      String         @map("original_filename")
+  displayName           String?        @map("display_name")
+  /** Candidate/admin note explaining what this specific file is. */
+  description           String?        @map("description")
+  storageProvider       String         @map("storage_provider")
+  storageKey            String         @map("storage_key")
+  mimeType              String         @map("mime_type")
+  fileSizeBytes         Int            @map("file_size_bytes")
+  status                DocumentStatus @default(UPLOADED)
+  version               Int            @default(1)
+  isCurrentVersion      Boolean        @default(true) @map("is_current_version")
+  candidateNumber       String?        @map("candidate_number")
+  visaTypeCode          String?        @map("visa_type_code")
+  documentRequestId     String?        @map("document_request_id") @db.Uuid
+  documentRequestItemId String?        @map("document_request_item_id") @db.Uuid
+  uploadedAt            DateTime       @default(now()) @map("uploaded_at")
+  uploadedByType        UploadedByType @map("uploaded_by_type")
+  uploadedById          String?        @map("uploaded_by_id")
+  reviewedAt            DateTime?      @map("reviewed_at")
+  reviewedById          String?        @map("reviewed_by") @db.Uuid
+  adminNote             String?        @map("admin_note")
+  /** Client-generated key so a lost response can safely retry the same upload. */
+  clientIdempotencyKey  String?        @map("client_idempotency_key")
+  createdAt             DateTime       @default(now()) @map("created_at")
+  updatedAt             DateTime       @updatedAt @map("updated_at")
+
+  candidate            Candidate               @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  case                 Case                    @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  onboardingSubmission O1OnboardingSubmission? @relation(fields: [onboardingSubmissionId], references: [id], onDelete: SetNull)
+  evidenceEntry        EvidenceEntry?          @relation(fields: [evidenceEntryId], references: [id], onDelete: SetNull)
+  reviewedBy           AdminUser?              @relation("DocumentReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  documentRequest      DocumentRequest?        @relation(fields: [documentRequestId], references: [id], onDelete: SetNull)
+  documentRequestItem  DocumentRequestItem?    @relation(fields: [documentRequestItemId], references: [id], onDelete: SetNull)
+  comments             DocumentComment[]
+
+  @@unique([caseId, clientIdempotencyKey])
+  @@index([candidateId])
+  @@index([caseId])
+  @@index([category])
+  @@index([status])
+  @@index([questionKey, isCurrentVersion])
+  @@index([evidenceEntryId])
+  @@index([storageKey])
+  @@index([documentRequestId])
+  @@index([documentRequestItemId])
+  @@map("case_documents")
+}
+
+model DocumentComment {
+  id          String   @id @default(uuid()) @db.Uuid
+  documentId  String   @map("document_id") @db.Uuid
+  candidateId String   @map("candidate_id") @db.Uuid
+  authorId    String   @map("author_id") @db.Uuid
+  body        String   @map("comment")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  document  CaseDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  candidate Candidate    @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  author    AdminUser    @relation(fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([documentId])
+  @@index([candidateId])
+  @@index([authorId])
+  @@index([createdAt])
+  @@map("document_comments")
+}
+
+model CaseNote {
+  id          String         @id @default(uuid()) @db.Uuid
+  candidateId String         @map("candidate_id") @db.Uuid
+  caseId      String         @map("case_id") @db.Uuid
+  authorId    String         @map("author_id") @db.Uuid
+  note        String
+  visibility  NoteVisibility @default(INTERNAL)
+  isPinned    Boolean        @default(false) @map("is_pinned")
+  archivedAt  DateTime?      @map("archived_at")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  case      Case      @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  author    AdminUser @relation(fields: [authorId], references: [id], onDelete: Restrict)
+
+  @@index([candidateId])
+  @@index([caseId])
+  @@index([isPinned])
+  @@map("case_notes")
+}
+
+model CaseActivity {
+  id         String   @id @default(uuid()) @db.Uuid
+  candidateId String  @map("candidate_id") @db.Uuid
+  caseId     String?  @map("case_id") @db.Uuid
+  type       String
+  message    String
+  actorType  String   @map("actor_type")
+  actorId    String?  @map("actor_id")
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  case      Case?     @relation(fields: [caseId], references: [id], onDelete: SetNull)
+
+  @@index([caseId])
+  @@index([candidateId])
+  @@index([createdAt])
+  @@map("case_activity")
+}
+
+model Payment {
+  id                      String        @id @default(uuid()) @db.Uuid
+  candidateId             String        @map("candidate_id") @db.Uuid
+  caseId                  String        @map("case_id") @db.Uuid
+  installmentNumber       Int           @map("installment_number")
+  amountCents             Int           @map("amount_cents")
+  currency                String        @default("usd")
+  status                  PaymentStatus @default(DRAFT)
+  stripeCheckoutSessionId String?       @unique @map("stripe_checkout_session_id")
+  stripePaymentIntentId   String?       @map("stripe_payment_intent_id")
+  stripeCustomerId        String?       @map("stripe_customer_id")
+  paymentUrl              String?       @map("payment_url")
+  paymentLinkGeneratedAt  DateTime?     @map("payment_link_generated_at")
+  paymentLinkSentAt       DateTime?     @map("payment_link_sent_at")
+  paidAmountCents         Int?          @map("paid_amount_cents")
+  paidAt                  DateTime?     @map("paid_at")
+  paymentMethodType       String?       @map("payment_method_type")
+  cardLast4               String?       @map("card_last4")
+  confirmedById           String?       @map("confirmed_by") @db.Uuid
+  confirmedSource         String?       @map("confirmed_source")
+  referenceId             String?       @map("reference_id")
+  adminNote               String?       @map("admin_note")
+  dueAt                   DateTime?     @map("due_at")
+  createdById             String?       @map("created_by") @db.Uuid
+  createdAt               DateTime      @default(now()) @map("created_at")
+  updatedAt               DateTime      @updatedAt @map("updated_at")
+
+  candidate   Candidate      @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  case        Case           @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  createdBy   AdminUser?     @relation("PaymentCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  confirmedBy AdminUser?     @relation("PaymentConfirmer", fields: [confirmedById], references: [id], onDelete: SetNull)
+  events      PaymentEvent[]
+
+  @@unique([caseId, installmentNumber])
+  @@index([caseId])
+  @@index([candidateId])
+  @@index([status])
+  @@map("payments")
+}
+
+model PaymentEvent {
+  id          String   @id @default(uuid()) @db.Uuid
+  paymentId   String   @map("payment_id") @db.Uuid
+  candidateId String   @map("candidate_id") @db.Uuid
+  caseId      String   @map("case_id") @db.Uuid
+  fromStatus  String?  @map("from_status")
+  toStatus    String   @map("to_status")
+  source      String
+  actorId     String?  @map("actor_id") @db.Uuid
+  note        String?
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  payment   Payment    @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  candidate Candidate  @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  case      Case       @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  actor     AdminUser? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([paymentId])
+  @@index([caseId])
+  @@index([candidateId])
+  @@map("payment_events")
+}
+
+model DocumentRequest {
+  id                  String    @id @default(uuid()) @db.Uuid
+  requestNumber       String    @unique @map("request_number")
+  candidateId         String    @map("candidate_id") @db.Uuid
+  caseId              String    @map("case_id") @db.Uuid
+  accessLinkId        String?   @map("access_link_id") @db.Uuid
+  templateKey         String    @map("template_key")
+  requestType         String    @default("FULL") @map("request_type")
+  visaTypeCode        String?   @map("visa_type_code")
+  templateId          String?   @map("template_id") @db.Uuid
+  templateVersion     Int?      @map("template_version")
+  requestedCategories Json      @default("[]") @map("requested_categories")
+  requestedItems      Json      @default("[]") @map("requested_items")
+  documentName        String?   @map("document_name")
+  documentNote        String?   @map("document_note")
+  recipientEmail      String?   @map("recipient_email")
+  subject             String?
+  heading             String?
+  introMessage        String?   @map("intro_message")
+  secureUrl           String?   @map("secure_url")
+  status              String    @default("SENT")
+  sentById            String?   @map("sent_by") @db.Uuid
+  sentAt              DateTime  @default(now()) @map("sent_at")
+  openedAt            DateTime? @map("opened_at")
+  completedAt         DateTime? @map("completed_at")
+  cancelledAt         DateTime? @map("cancelled_at")
+  expiresAt           DateTime  @map("expires_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  candidate  Candidate  @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  case       Case       @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  sentBy     AdminUser? @relation(fields: [sentById], references: [id], onDelete: SetNull)
+  template   VisaDocumentTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  sessions   CandidateSubmissionSession[]
+  items      DocumentRequestItem[]
+  documents  CaseDocument[]
+
+  @@index([candidateId])
+  @@index([caseId])
+  @@index([accessLinkId])
+  @@index([requestType])
+  @@map("document_requests")
+}
+
+model DocumentRequestItem {
+  id                  String   @id @default(uuid()) @db.Uuid
+  documentRequestId   String   @map("document_request_id") @db.Uuid
+  candidateId         String   @map("candidate_id") @db.Uuid
+  caseId              String   @map("case_id") @db.Uuid
+  templateItemId      String?  @map("template_item_id") @db.Uuid
+  category            String
+  documentKey         String   @map("document_key")
+  documentName        String   @map("document_name")
+  instructions        String?
+  required            Boolean  @default(false)
+  allowsMultipleFiles Boolean  @default(true) @map("allows_multiple_files")
+  status              String   @default("REQUESTED")
+  sortOrder           Int      @default(0) @map("sort_order")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  documentRequest DocumentRequest @relation(fields: [documentRequestId], references: [id], onDelete: Cascade)
+  candidate       Candidate       @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  case            Case            @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  documents       CaseDocument[]
+
+  @@unique([documentRequestId, documentKey])
+  @@index([documentRequestId])
+  @@index([candidateId])
+  @@index([status])
+  @@map("document_request_items")
+}
+
+model VisaTypeDef {
+  id        String   @id @default(uuid()) @db.Uuid
+  code      String   @unique
+  name      String
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("visa_type_defs")
+}
+
+model VisaDocumentTemplate {
+  id           String   @id @default(uuid()) @db.Uuid
+  visaTypeCode String   @map("visa_type_code")
+  templateName String   @map("template_name")
+  description  String?
+  version      Int      @default(1)
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  items    VisaDocumentTemplateItem[]
+  requests DocumentRequest[]
+
+  @@unique([visaTypeCode, version])
+  @@index([visaTypeCode, isActive])
+  @@map("visa_document_templates")
+}
+
+model VisaDocumentTemplateItem {
+  id                  String   @id @default(uuid()) @db.Uuid
+  templateId          String   @map("template_id") @db.Uuid
+  category            String
+  documentKey         String   @map("document_key")
+  documentName        String   @map("document_name")
+  description         String?
+  instructions        String?
+  defaultRequired     Boolean  @default(false) @map("default_required")
+  allowsMultipleFiles Boolean  @default(true) @map("allows_multiple_files")
+  sortOrder           Int      @default(0) @map("sort_order")
+  isActive            Boolean  @default(true) @map("is_active")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  template VisaDocumentTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, documentKey])
+  @@index([templateId])
+  @@map("visa_document_template_items")
+}
+
+model CustomDocumentDef {
+  id            String   @id @default(uuid()) @db.Uuid
+  candidateId   String   @map("candidate_id") @db.Uuid
+  caseId        String   @map("case_id") @db.Uuid
+  key           String
+  label         String
+  instructions  String?
+  category      String   @default("additional")
+  createdById   String?  @map("created_by_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  candidate Candidate  @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  case      Case       @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  createdBy AdminUser? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([caseId, key])
+  @@index([candidateId])
+  @@map("custom_document_defs")
+}
+
+model LawyerAssignment {
+  id          String   @id @default(uuid()) @db.Uuid
+  caseId      String   @map("case_id") @db.Uuid
+  lawyerId    String   @map("lawyer_id") @db.Uuid
+  assignedById String? @map("assigned_by") @db.Uuid
+  note        String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  case       Case       @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  lawyer     AdminUser  @relation("LawyerAssignee", fields: [lawyerId], references: [id], onDelete: Restrict)
+  assignedBy AdminUser? @relation("LawyerAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
+
+  @@index([caseId])
+  @@index([lawyerId])
+  @@map("lawyer_assignments")
+}
+
+model CandidateAccessLink {
+  id                        String            @id @default(uuid()) @db.Uuid
+  candidateId               String            @map("candidate_id") @db.Uuid
+  caseId                    String            @map("case_id") @db.Uuid
+  purpose                   AccessLinkPurpose
+  tokenHash                 String            @unique @map("token_hash")
+  expiresAt                 DateTime          @map("expires_at")
+  revokedAt                 DateTime?         @map("revoked_at")
+  requiresEmailVerification Boolean           @default(false) @map("requires_email_verification")
+  paymentId                 String?           @map("payment_id") @db.Uuid
+  createdAt                 DateTime          @default(now()) @map("created_at")
+
+  candidate Candidate               @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  case      Case                    @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  codes     EmailVerificationCode[]
+
+  @@index([candidateId])
+  @@index([caseId])
+  @@index([purpose])
+  @@map("candidate_access_links")
+}
+
+model EmailVerificationCode {
+  id           String    @id @default(uuid()) @db.Uuid
+  accessLinkId String    @map("access_link_id") @db.Uuid
+  candidateId  String    @map("candidate_id") @db.Uuid
+  codeHash     String    @map("code_hash")
+  expiresAt    DateTime  @map("expires_at")
+  consumedAt   DateTime? @map("consumed_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  accessLink CandidateAccessLink @relation(fields: [accessLinkId], references: [id], onDelete: Cascade)
+  candidate  Candidate           @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([accessLinkId])
+  @@index([candidateId])
+  @@map("email_verification_codes")
+}
+
+model Communication {
+  id              String    @id @default(uuid()) @db.Uuid
+  candidateId     String    @map("candidate_id") @db.Uuid
+  caseId          String?   @map("case_id") @db.Uuid
+  candidateNumber String?   @map("candidate_number")
+  type            String
+  templateType    String?   @map("template_type")
+  recipient       String
+  subject         String
+  bodySnapshot    String?   @map("body_snapshot")
+  status          String
+  sentById        String?   @map("sent_by") @db.Uuid
+  sentAt          DateTime  @default(now()) @map("sent_at")
+  metadata        Json?
+
+  candidate Candidate  @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  case      Case?      @relation(fields: [caseId], references: [id], onDelete: SetNull)
+  sentBy    AdminUser? @relation(fields: [sentById], references: [id], onDelete: SetNull)
+
+  @@index([candidateId])
+  @@index([caseId])
+  @@index([sentAt])
+  @@map("email_log")
+}
+
+model CandidateSubmissionSession {
+  id                String    @id @default(uuid()) @db.Uuid
+  candidateId       String    @map("candidate_id") @db.Uuid
+  caseId            String    @map("case_id") @db.Uuid
+  documentRequestId String?   @map("document_request_id") @db.Uuid
+  purpose           String    @default("DOCUMENT_UPLOAD")
+  tokenHash         String    @unique @map("token_hash")
+  expiresAt         DateTime  @map("expires_at")
+  verifiedAt        DateTime  @default(now()) @map("verified_at")
+  revokedAt         DateTime? @map("revoked_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  candidate       Candidate        @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  case            Case             @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  documentRequest DocumentRequest? @relation(fields: [documentRequestId], references: [id], onDelete: SetNull)
+
+  @@index([candidateId])
+  @@index([caseId])
+  @@index([expiresAt])
+  @@map("candidate_submission_sessions")
+}
+
+model StripeEvent {
+  id          String   @id
+  type        String
+  processedAt DateTime @default(now()) @map("processed_at")
+  payload     Json?
+
+  @@map("stripe_events")
+}
+
+model EmailTemplate {
+  id               String   @id @default(uuid()) @db.Uuid
+  templateKey      String   @unique @map("template_key")
+  name             String
+  subjectTemplate  String   @map("subject_template")
+  htmlTemplate     String   @map("html_template") @db.Text
+  version          Int      @default(1)
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@map("email_templates")
+}
+
+model FinancialEngagement {
+  id                 String    @id @default(uuid()) @db.Uuid
+  candidateId        String    @map("candidate_id") @db.Uuid
+  caseId             String    @unique @map("case_id") @db.Uuid
+  quotedAmountCents  Int       @default(0) @map("quoted_amount_cents")
+  currency           String    @default("USD")
+  quoteStatus        String    @default("DRAFT") @map("quote_status")
+  quotedAt           DateTime? @map("quoted_at")
+  quotedById         String?   @map("quoted_by_id") @db.Uuid
+  structureType      String?   @map("structure_type")
+  notes              String?
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  candidate Candidate  @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  case      Case       @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  quotedBy  AdminUser? @relation("EngagementQuoter", fields: [quotedById], references: [id], onDelete: SetNull)
+  history   QuoteHistory[]
+  schedules PaymentSchedule[]
+
+  @@index([candidateId])
+  @@index([quoteStatus])
+  @@map("financial_engagements")
+}
+
+model QuoteHistory {
+  id            String   @id @default(uuid()) @db.Uuid
+  candidateId   String   @map("candidate_id") @db.Uuid
+  caseId        String   @map("case_id") @db.Uuid
+  engagementId  String?  @map("engagement_id") @db.Uuid
+  amountCents   Int      @map("amount_cents")
+  currency      String   @default("USD")
+  status        String
+  createdById   String?  @map("created_by_id") @db.Uuid
+  changeReason  String?  @map("change_reason")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  candidate  Candidate            @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  case       Case                 @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  engagement FinancialEngagement? @relation(fields: [engagementId], references: [id], onDelete: SetNull)
+  createdBy  AdminUser?           @relation("QuoteHistoryCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([candidateId])
+  @@index([caseId])
+  @@map("quote_history")
+}
+
+model PaymentSchedule {
+  id               String   @id @default(uuid()) @db.Uuid
+  candidateId      String   @map("candidate_id") @db.Uuid
+  caseId           String   @map("case_id") @db.Uuid
+  engagementId     String?  @map("engagement_id") @db.Uuid
+  structureType    String   @map("structure_type")
+  frequency        String?
+  totalAmountCents Int      @map("total_amount_cents")
+  currency         String   @default("USD")
+  status           String   @default("ACTIVE")
+  createdById      String?  @map("created_by_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  candidate  Candidate            @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  case       Case                 @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  engagement FinancialEngagement? @relation(fields: [engagementId], references: [id], onDelete: SetNull)
+  createdBy  AdminUser?           @relation("ScheduleCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  items      PaymentScheduleItem[]
+
+  @@index([candidateId])
+  @@index([caseId])
+  @@map("payment_schedules")
+}
+
+model PaymentScheduleItem {
+  id                     String    @id @default(uuid()) @db.Uuid
+  scheduleId             String    @map("schedule_id") @db.Uuid
+  candidateId            String    @map("candidate_id") @db.Uuid
+  caseId                 String    @map("case_id") @db.Uuid
+  label                  String
+  sequenceNumber         Int       @map("sequence_number")
+  scheduledAmountCents   Int       @map("scheduled_amount_cents")
+  feeCategory            String    @default("PROFESSIONAL_FEE") @map("fee_category")
+  countsTowardEngagement Boolean   @default(true) @map("counts_toward_engagement")
+  dueDate                DateTime? @map("due_date")
+  dueCondition           String?   @map("due_condition")
+  status                 String    @default("UPCOMING")
+  reminderCount          Int       @default(0) @map("reminder_count")
+  lastReminderAt         DateTime? @map("last_reminder_at")
+  lastOverdueNoticeAt    DateTime? @map("last_overdue_notice_at")
+  notes                  String?
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  schedule    PaymentSchedule             @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  candidate   Candidate                   @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  case        Case                        @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  receipts    PaymentReceipt[]
+  allocations PaymentReceiptAllocation[]
+
+  @@index([scheduleId])
+  @@index([candidateId])
+  @@index([caseId])
+  @@index([status])
+  @@index([dueDate])
+  @@map("payment_schedule_items")
+}
+
+model PaymentReceipt {
+  id                    String   @id @default(uuid()) @db.Uuid
+  candidateId           String   @map("candidate_id") @db.Uuid
+  caseId                String   @map("case_id") @db.Uuid
+  paymentScheduleItemId String?  @map("payment_schedule_item_id") @db.Uuid
+  description           String
+  amountCents           Int      @map("amount_cents")
+  currency              String   @default("USD")
+  receivedDate          DateTime @map("received_date")
+  paymentMethod         String   @map("payment_method")
+  paymentMethodOther    String?  @map("payment_method_other")
+  receivedByName        String   @map("received_by_name")
+  confirmedByAdminId    String?  @map("confirmed_by_admin_id") @db.Uuid
+  referenceNumber       String?  @map("reference_number")
+  internalNote          String?  @map("internal_note")
+  receiptType           String   @default("SCHEDULED") @map("receipt_type")
+  status                String   @default("ACTIVE")
+  voidReason            String?  @map("void_reason")
+  correctionOfId        String?  @map("correction_of_id") @db.Uuid
+  attachmentStorageKey  String?  @map("attachment_storage_key")
+  attachmentFilename    String?  @map("attachment_filename")
+  attachmentMimeType    String?  @map("attachment_mime_type")
+  attachmentSizeBytes   Int?     @map("attachment_size_bytes")
+  attachmentProvider    String?  @map("attachment_provider")
+  createdById           String?  @map("created_by_id") @db.Uuid
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  candidate    Candidate                   @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  case         Case                        @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  scheduleItem PaymentScheduleItem?        @relation(fields: [paymentScheduleItemId], references: [id], onDelete: SetNull)
+  confirmedBy  AdminUser?                  @relation("ReceiptConfirmer", fields: [confirmedByAdminId], references: [id], onDelete: SetNull)
+  createdBy    AdminUser?                  @relation("ReceiptCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  allocations  PaymentReceiptAllocation[]
+
+  @@index([candidateId])
+  @@index([caseId])
+  @@index([paymentScheduleItemId])
+  @@index([status])
+  @@index([receivedDate])
+  @@index([referenceNumber])
+  @@map("payment_receipts")
+}
+
+model PaymentReceiptAllocation {
+  id             String   @id @default(uuid()) @db.Uuid
+  receiptId      String   @map("receipt_id") @db.Uuid
+  scheduleItemId String   @map("schedule_item_id") @db.Uuid
+  amountCents    Int      @map("amount_cents")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  receipt      PaymentReceipt      @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  scheduleItem PaymentScheduleItem @relation(fields: [scheduleItemId], references: [id], onDelete: Cascade)
+
+  @@index([receiptId])
+  @@index([scheduleItemId])
+  @@map("payment_receipt_allocations")
+}
+
+model FinanceEvent {
+  id          String   @id @default(uuid()) @db.Uuid
+  candidateId String   @map("candidate_id") @db.Uuid
+  caseId      String?  @map("case_id") @db.Uuid
+  eventType   String   @map("event_type")
+  message     String
+  actorId     String?  @map("actor_id") @db.Uuid
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  candidate Candidate  @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  case      Case?      @relation(fields: [caseId], references: [id], onDelete: SetNull)
+  actor     AdminUser? @relation("FinanceActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([candidateId])
+  @@index([caseId])
+  @@index([createdAt])
+  @@map("finance_events")
+}
+
+model FinanceSetting {
+  id        String   @id @default(uuid()) @db.Uuid
+  key       String   @unique
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("finance_settings")
+}
+
+enum BackupJobKind {
+  FULL
+  DATA_ONLY
+  DOCUMENTS_ONLY
+  EXCEL
+  CSV
+  PRE_RESTORE
+}
+
+enum BackupJobStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+  PARTIAL
+}
+
+enum RestoreMode {
+  MERGE
+  MISSING_ONLY
+  UPDATE_EXISTING
+  FULL
+}
+
+enum RestoreJobStatus {
+  VALIDATING
+  PREVIEW_READY
+  IMPORTING
+  VERIFYING
+  COMPLETED
+  FAILED
+}
+
+model BackupJob {
+  id              String          @id @default(uuid()) @db.Uuid
+  kind            BackupJobKind   @default(FULL)
+  status          BackupJobStatus @default(PENDING)
+  filename        String?
+  byteSize        Int?            @map("byte_size")
+  candidateCount  Int             @default(0) @map("candidate_count")
+  documentCount   Int             @default(0) @map("document_count")
+  caseCount       Int             @default(0) @map("case_count")
+  paymentCount    Int             @default(0) @map("payment_count")
+  filesIncluded   Int             @default(0) @map("files_included")
+  filesMissing    Int             @default(0) @map("files_missing")
+  manifestJson    Json?           @map("manifest_json")
+  warningReport   Json?           @map("warning_report")
+  errorMessage    String?         @map("error_message")
+  requestedById   String          @map("requested_by_id") @db.Uuid
+  startedAt       DateTime?       @map("started_at")
+  finishedAt      DateTime?       @map("finished_at")
+  createdAt       DateTime        @default(now()) @map("created_at")
+
+  requestedBy AdminUser @relation("BackupRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+
+  @@index([createdAt])
+  @@index([requestedById])
+  @@map("backup_jobs")
+}
+
+model RestoreJob {
+  id               String           @id @default(uuid()) @db.Uuid
+  status           RestoreJobStatus @default(VALIDATING)
+  mode             RestoreMode      @default(MERGE)
+  sourceFilename   String?          @map("source_filename")
+  byteSize         Int?             @map("byte_size")
+  summaryJson      Json?            @map("summary_json")
+  resultJson       Json?            @map("result_json")
+  errorMessage     String?          @map("error_message")
+  preRestoreBackupId String?        @map("pre_restore_backup_id") @db.Uuid
+  confirmationText String?          @map("confirmation_text")
+  requestedById    String           @map("requested_by_id") @db.Uuid
+  startedAt        DateTime?        @map("started_at")
+  finishedAt       DateTime?        @map("finished_at")
+  createdAt        DateTime         @default(now()) @map("created_at")
+
+  requestedBy AdminUser @relation("RestoreRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+
+  @@index([createdAt])
+  @@index([requestedById])
+  @@map("restore_jobs")
+}
+
+/// Durable binary objects (documents, receipt attachments) persisted in Neon BYTEA.
+/// Metadata tables keep storageKey → this row; list APIs never SELECT content.
+model StoredObject {
+  id        String   @id @default(uuid()) @db.Uuid
+  key       String   @unique
+  mimeType  String?  @map("mime_type")
+  content   Bytes
+  checksum  String
+  byteSize  Int      @map("byte_size")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([checksum])
+  @@map("stored_objects")
+}

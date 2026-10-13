@@ -1,0 +1,49 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# next / build
+.next/
+out/
+build/
+dist/
+.turbo/
+
+# env & secrets
+.env
+.env.*
+!.env.example
+
+# logs & debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# local uploads / runtime
+.data/
+uploads/
+
+# test / coverage
+coverage/
+.nyc_output/
+
+# typescript
+*.tsbuildinfo
+
+# vercel / netlify local
+.vercel/
+.netlify/
+
+# v0 runtime files
+__v0_runtime_loader.js
+__v0_devtools.tsx
+__v0_jsx-dev-runtime.ts

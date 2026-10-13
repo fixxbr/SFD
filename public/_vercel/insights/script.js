@@ -1,0 +1,1 @@
+/* vercel analytics disabled on this host */
