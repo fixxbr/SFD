@@ -2,6 +2,7 @@ import { requireAdminPage } from '@/lib/auth'
 import { EMAIL_TEMPLATES } from '@/lib/email-templates'
 import { renderCatalogEmail } from '@/lib/email/catalog-html'
 import { PageHeader } from '@/components/admin/ui'
+import { EmailTemplatePreview } from '@/components/admin/email-template-preview'
 
 export const dynamic = 'force-dynamic'
 
@@ -37,19 +38,24 @@ export default async function EmailTemplatesPage() {
             t.key === 'MISSING_DOCUMENT_REMINDER' ? ['Passport', 'Resume / CV', 'I-94'] : undefined,
         })
         return (
-          <details key={t.key} className="rounded-lg border border-[#D7DEE6] bg-white p-4">
-            <summary className="cursor-pointer font-semibold">
-              {t.label} <span className="text-xs font-normal text-[#5B6B7C]">({rendered.version})</span>
-            </summary>
+          <EmailTemplatePreview
+            key={t.key}
+            title={t.key}
+            html={rendered.html}
+            summary={
+              <>
+                {t.label} <span className="text-xs font-normal text-[#5B6B7C]">({rendered.version})</span>
+              </>
+            }
+          >
             <p className="mt-2 text-sm text-[#5B6B7C]">{rendered.subject}</p>
-            <iframe title={t.key} className="mt-3 h-[420px] w-full max-w-[680px] rounded border" srcDoc={rendered.html} />
             <details className="mt-2">
               <summary className="cursor-pointer text-xs text-[#5B6B7C]">Gmail plain-text preview</summary>
               <pre className="mt-2 overflow-auto whitespace-pre-wrap rounded bg-[#F3F5F7] p-3 text-xs">
                 {rendered.plainTextForGmail}
               </pre>
             </details>
-          </details>
+          </EmailTemplatePreview>
         )
       })}
     </div>

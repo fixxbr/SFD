@@ -60,6 +60,20 @@ export async function recordLoginAttempt(email: string, ip: string, success: boo
   await prisma.loginAttempt.create({ data: { email, ipAddress: ip, success } })
 }
 
+/**
+ * Candidate portal verification (Candidate ID + email) uses the same limits as staff
+ * login. Keys are prefixed so candidate attempts never count against staff logins.
+ */
+const CANDIDATE_VERIFY_PREFIX = 'candidate-verify:'
+
+export async function isCandidateVerifyRateLimited(candidateNumber: string, ip: string): Promise<boolean> {
+  return isLoginRateLimited(`${CANDIDATE_VERIFY_PREFIX}${candidateNumber}`, `${CANDIDATE_VERIFY_PREFIX}${ip}`)
+}
+
+export async function recordCandidateVerifyFailure(candidateNumber: string, ip: string) {
+  await recordLoginAttempt(`${CANDIDATE_VERIFY_PREFIX}${candidateNumber}`, `${CANDIDATE_VERIFY_PREFIX}${ip}`, false)
+}
+
 export async function createSession(user: AdminUser, ip: string, userAgent: string | null) {
   const token = randomToken(32)
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS)

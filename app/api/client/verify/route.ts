@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { clientIp, isCandidateVerifyRateLimited, recordCandidateVerifyFailure } from '@/lib/auth'
 import { handleApiError, jsonError, assertSameOrigin, cookieSecureFromRequest } from '@/lib/http'
 import { normalizeEmail } from '@/lib/normalize'
 import { normalizeCandidateNumber } from '@/lib/candidate-number'
@@ -14,6 +15,10 @@ export async function POST(request: Request) {
     const candidateNumber = normalizeCandidateNumber(String(body.candidate_number ?? ''))
     const email = normalizeEmail(String(body.email ?? ''))
     if (!candidateNumber || !email) return jsonError(VERIFY_GENERIC_ERROR, 401)
+    const ip = await clientIp()
+    if (await isCandidateVerifyRateLimited(candidateNumber, ip)) {
+      return jsonError('Too many attempts. Please wait 15 minutes and try again.', 429)
+    }
 
     const candidate = await prisma.candidate.findUnique({
       where: { candidateNumber },
@@ -23,6 +28,7 @@ export async function POST(request: Request) {
     })
     const currentCase = candidate?.cases[0]
     if (!candidate || candidate.normalizedEmail !== email || !currentCase) {
+      await recordCandidateVerifyFailure(candidateNumber, ip)
       return jsonError(VERIFY_GENERIC_ERROR, 401)
     }
 

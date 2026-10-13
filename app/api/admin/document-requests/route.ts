@@ -14,6 +14,7 @@ import { resolveCandidateUploadUrl } from '@/lib/candidate-upload-url'
 import { additionalDocumentKey } from '@/lib/document-requirement-status'
 import { reconcileRequestItemsForCandidate } from '@/lib/sync-request-status'
 import { prisma } from '@/lib/db'
+import { assertCanAccessCase, isLawyerUser } from '@/lib/lawyer-access'
 
 export async function GET(request: Request) {
   try {
@@ -95,6 +96,7 @@ export async function POST(request: Request) {
       const documentName = String(body.documentName || '').trim()
       const category = String(body.category || 'Additional Evidence').trim() || 'Additional Evidence'
       if (!caseId || !documentName) return jsonError('caseId and documentName are required.')
+      if (isLawyerUser(user)) await assertCanAccessCase(user, caseId)
       const caseRow = await prisma.case.findUnique({ where: { id: caseId } })
       if (!caseRow) return jsonError('Case not found', 404)
       const key =
@@ -139,6 +141,7 @@ export async function POST(request: Request) {
       if (!caseId || !parentKey || !note) {
         return jsonError('caseId, documentKey, and a description of the additional file are required.')
       }
+      if (isLawyerUser(user)) await assertCanAccessCase(user, caseId)
       const requestRow = await prisma.documentRequest.findFirst({
         where: { caseId, cancelledAt: null },
         orderBy: { sentAt: 'desc' },
@@ -189,6 +192,7 @@ export async function POST(request: Request) {
       const caseId = String(body.caseId || '')
       const key = String(body.documentKey || '').trim()
       if (!caseId || !key) return jsonError('caseId and documentKey are required.')
+      if (isLawyerUser(user)) await assertCanAccessCase(user, caseId)
       const existing = await prisma.customDocumentDef.findUnique({ where: { caseId_key: { caseId, key } } })
       if (!existing) return jsonError('Requirement not found', 404)
       await prisma.customDocumentDef.delete({ where: { caseId_key: { caseId, key } } })

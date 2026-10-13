@@ -128,21 +128,36 @@ export function CandidateProfile({
   // Prefer ?tab= (available to the server). Fall back to initialTab, then hash after hydrate.
   const tab = resolveCandidateTab(paramTab || initialTab, paramTab ? '' : hash, lawyerMode)
 
-  // Bounded refresh while Overview is open so candidate link / other-session uploads appear.
+  // While Overview is open, check every 20s (and on focus) whether anything changed —
+  // candidate uploads, links, other staff edits — and re-render only when it did.
+  // The check is one small query; a full refresh rebuilds the page (~28 queries).
+  const caseIdForVersion = currentCase?.id as string | undefined
   useEffect(() => {
-    if (tab !== 'overview') return
-    const tick = () => {
+    if (tab !== 'overview' || !caseIdForVersion) return
+    let lastVersion: string | null = null
+    let stopped = false
+    const check = async () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-      router.refresh()
+      try {
+        const res = await fetch(`/api/admin/cases/${caseIdForVersion}/version`, { cache: 'no-store' })
+        if (!res.ok || stopped) return
+        const { version } = (await res.json()) as { version: string }
+        if (lastVersion !== null && version !== lastVersion) router.refresh()
+        lastVersion = version
+      } catch {
+        // Offline / transient: try again on the next tick.
+      }
     }
-    const id = window.setInterval(tick, 20_000)
-    const onFocus = () => router.refresh()
+    void check()
+    const id = window.setInterval(() => void check(), 20_000)
+    const onFocus = () => void check()
     window.addEventListener('focus', onFocus)
     return () => {
+      stopped = true
       window.clearInterval(id)
       window.removeEventListener('focus', onFocus)
     }
-  }, [tab, router])
+  }, [tab, router, caseIdForVersion])
 
   const writeC = !lawyerMode && can(userRole, 'candidates:write')
   const writeP = !lawyerMode && can(userRole, 'payments:write')
