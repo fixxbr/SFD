@@ -1,9 +1,5 @@
 import { createCaseLink } from '@/lib/case-links'
-import {
-  normalizeSubmittedUrls,
-  resolveLinkInputKind,
-  validateHttpUrl,
-} from '@/lib/link-request-items'
+import { normalizeSubmittedUrls, validateHttpUrl } from '@/lib/link-request-items'
 import { prisma } from '@/lib/db'
 
 export async function saveCandidateLinkSubmission(input: {
@@ -20,7 +16,6 @@ export async function saveCandidateLinkSubmission(input: {
   append?: boolean
   clientIdempotencyKey?: string | null
 }) {
-  const kind = resolveLinkInputKind(input.questionKey)
   const normalized = normalizeSubmittedUrls(input.rawUrls)
   if (!normalized.length) throw new Error('Enter at least one URL.')
 
@@ -30,10 +25,8 @@ export async function saveCandidateLinkSubmission(input: {
     if (!check.ok) throw new Error(check.error)
     validated.push(check.href)
   }
-  if (kind === 'url' && validated.length > 1) {
-    throw new Error('Please submit a single URL for this item.')
-  }
-
+  // Every link item takes as many URLs as the candidate needs; each is saved on its own and
+  // added to what is already on file (nothing is replaced).
   // One link row per URL so each link can be opened, edited and removed on its own.
   const documents = []
   for (const [index, href] of validated.entries()) {

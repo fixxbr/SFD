@@ -581,7 +581,7 @@ export function DocumentsPortal({ initialSession = null }: { initialSession?: Do
                     ) : null}
                     <div className="mt-3">
                       {isLink ? (
-                        q.inputKind === 'urls' ? (
+                        <>
                           <textarea
                             className="w-full rounded-lg border-2 border-foreground/15 bg-card px-3 py-2 text-sm"
                             rows={3}
@@ -592,18 +592,8 @@ export function DocumentsPortal({ initialSession = null }: { initialSession?: Do
                               setPendingLinks((prev) => ({ ...prev, [q.key]: e.target.value }))
                             }
                           />
-                        ) : (
-                          <input
-                            type="url"
-                            className="w-full rounded-lg border-2 border-foreground/15 bg-card px-3 py-2 text-sm"
-                            placeholder="https://"
-                            disabled={submitting}
-                            value={pendingLinks[q.key] ?? ''}
-                            onChange={(e) =>
-                              setPendingLinks((prev) => ({ ...prev, [q.key]: e.target.value }))
-                            }
-                          />
-                        )
+                          <p className="mt-1 text-xs text-muted-foreground">Add as many links as you need, one per line.</p>
+                        </>
                       ) : (
                         <FileDropzone
                           files={pendingByKey[q.key] ?? []}

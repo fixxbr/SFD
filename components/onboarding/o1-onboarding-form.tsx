@@ -13,8 +13,9 @@ export function O1OnboardingForm({ token }: { token: string }) {
   const [error, setError] = useState('')
   const [name, setName] = useState('')
   const [answers, setAnswers] = useState<Record<string, unknown>>({})
-  const [documents, setDocuments] = useState<Record<string, { originalFilename: string; version: number }>>({})
-  const [, setStatus] = useState('DRAFT')
+  /** Every file sent for each upload slot (a slot holds as many files as the candidate needs). */
+  const [documents, setDocuments] = useState<Record<string, OnboardingFile[]>>({})
+  const [status, setStatus] = useState('DRAFT')
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
   const [submitted, setSubmitted] = useState(false)
@@ -39,8 +40,8 @@ export function O1OnboardingForm({ token }: { token: string }) {
         setAnswers(json.submission.answers ?? {})
         setStatus(json.submission.status)
         setLastSavedAt(json.submission.lastSavedAt)
-        const map: Record<string, { originalFilename: string; version: number }> = {}
-        for (const doc of json.documents ?? []) map[doc.questionKey] = doc
+        const map: Record<string, OnboardingFile[]> = {}
+        for (const doc of (json.documents ?? []) as OnboardingFile[]) (map[doc.questionKey] ??= []).push(doc)
         setDocuments(map)
         setUploadedKeys((json.documents ?? []).map((doc: { questionKey: string }) => doc.questionKey))
         const linkMap: Record<string, string[]> = {}
@@ -55,8 +56,11 @@ export function O1OnboardingForm({ token }: { token: string }) {
     }
   }, [token])
 
+  // Accepted answers are locked on the server; files and links can still be sent.
+  const answersLocked = status === 'ACCEPTED'
+
   useEffect(() => {
-    if (loading || submitted || error) return
+    if (loading || submitted || error || answersLocked) return
     const handle = setTimeout(() => {
       setSaveState('saving')
       fetch(`/api/onboarding/${token}/save`, {
@@ -73,7 +77,7 @@ export function O1OnboardingForm({ token }: { token: string }) {
         .catch(() => setSaveState('error'))
     }, 1200)
     return () => clearTimeout(handle)
-  }, [answers, loading, submitted, error, token])
+  }, [answers, loading, submitted, error, answersLocked, token])
 
   const saveLabel = useMemo(() => {
     if (saveState === 'saving') return 'Saving…'
@@ -87,7 +91,7 @@ export function O1OnboardingForm({ token }: { token: string }) {
       const description = window.prompt(`Description for ${file.name} (required — what is this document?)`)
       if (!description?.trim()) {
         alert(`Description is required for ${file.name}.`)
-        return
+        return false
       }
       const { uploadFileToApi } = await import('@/lib/client-upload')
       const json = await uploadFileToApi({
@@ -96,14 +100,39 @@ export function O1OnboardingForm({ token }: { token: string }) {
         fields: { questionKey, description: description.trim() },
         inviteToken: token,
       })
-      const document = json.document as { originalFilename: string; version: number } | undefined
+      const document = json.document as Omit<OnboardingFile, 'canReplace'> | undefined
       if (document) {
-        setDocuments((prev) => ({ ...prev, [questionKey]: document }))
+        // Not submitted yet, so the candidate can still replace or remove it.
+        setDocuments((prev) => ({ ...prev, [questionKey]: [...(prev[questionKey] ?? []), { ...document, canReplace: true }] }))
         setUploadedKeys((prev) => [...prev, questionKey])
       }
+      return Boolean(document)
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Upload did not complete. Please try again.')
+      return false
     }
+  }
+
+  /** Remove a file that has not been submitted yet, or one an admin or lawyer disapproved. */
+  async function removeFile(questionKey: string, file: OnboardingFile, confirmFirst = true) {
+    if (confirmFirst && !window.confirm(`Remove ${file.originalFilename}?`)) return false
+    const res = await fetch(`/api/onboarding/${token}/upload?documentId=${encodeURIComponent(file.id)}`, { method: 'DELETE' })
+    const json = (await res.json().catch(() => ({}))) as { error?: string }
+    if (!res.ok) {
+      alert(json.error ?? 'Could not remove this file.')
+      return false
+    }
+    setDocuments((prev) => ({ ...prev, [questionKey]: (prev[questionKey] ?? []).filter((d) => d.id !== file.id) }))
+    setUploadedKeys((prev) => {
+      const i = prev.indexOf(questionKey)
+      return i < 0 ? prev : [...prev.slice(0, i), ...prev.slice(i + 1)]
+    })
+    return true
+  }
+
+  /** Replace = upload the new file first, then remove the old one (nothing is lost if the upload fails). */
+  async function replaceFile(questionKey: string, file: OnboardingFile, next: File) {
+    if (await upload(questionKey, next)) await removeFile(questionKey, file, false)
   }
 
   /** Save one URL field as links when the candidate leaves it (checked on the server too). */
@@ -130,8 +159,18 @@ export function O1OnboardingForm({ token }: { token: string }) {
     }).catch(() => {})
     const res = await fetch(`/api/onboarding/${token}/submit`, { method: 'POST' })
     if (res.ok) {
+      const json = (await res.json().catch(() => ({}))) as { status?: string }
+      // Everything sent so far is now submitted: only files staff disapproved stay changeable.
+      setDocuments((prev) =>
+        Object.fromEntries(
+          Object.entries(prev).map(([key, files]) => [
+            key,
+            files.map((f) => ({ ...f, canReplace: f.status === 'NEEDS_REPLACEMENT' || f.status === 'REJECTED' })),
+          ]),
+        ),
+      )
       setSubmitted(true)
-      setStatus('SUBMITTED')
+      setStatus(json.status ?? 'SUBMITTED')
     }
   }
 
@@ -155,8 +194,12 @@ export function O1OnboardingForm({ token }: { token: string }) {
       <div className="paper-card p-8">
         <h1 className="text-2xl font-medium">Onboarding submitted</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Thank you, {name}. Afterstem has stored your answers and documents. You can return to this private link if we request more information.
+          Thank you, {name}. Afterstem has stored your answers and documents. You can send more documents or links
+          through this same link at any time, as often as you need.
         </p>
+        <button type="button" className="sketch-btn mt-4 px-5 py-2 text-sm" onClick={() => setSubmitted(false)}>
+          Send more documents or links
+        </button>
       </div>
     )
   }
@@ -169,7 +212,11 @@ export function O1OnboardingForm({ token }: { token: string }) {
         <p className="mt-2 text-sm text-muted-foreground">
           Your answers and files save to Afterstem automatically. This link is unique to your case.
         </p>
-        <p className="mt-2 text-xs font-medium text-accent">{saveLabel}</p>
+        {answersLocked ? (
+          <p className="mt-2 text-xs font-medium text-accent">Your answers have been accepted. You can still upload files and add links.</p>
+        ) : (
+          <p className="mt-2 text-xs font-medium text-accent">{saveLabel}</p>
+        )}
       </div>
       {catalog.map((category) => (
         <Section
@@ -181,6 +228,8 @@ export function O1OnboardingForm({ token }: { token: string }) {
           linkErrors={linkErrors}
           onChange={(key, value) => setAnswers((prev) => ({ ...prev, [key]: value }))}
           onUpload={upload}
+          onRemove={removeFile}
+          onReplace={replaceFile}
           onLinkBlur={saveLinks}
         />
       ))}
@@ -204,10 +253,21 @@ export function O1OnboardingForm({ token }: { token: string }) {
         )}
       </section>
       <button type="button" onClick={submit} className="sketch-btn sketch-btn-accent px-6 py-3 text-sm">
-        Submit onboarding
+        {status === 'SUBMITTED' || status === 'ACCEPTED' ? 'Submit again' : 'Submit onboarding'}
       </button>
     </div>
   )
+}
+
+type OnboardingFile = {
+  id: string
+  questionKey: string
+  originalFilename: string
+  status: string
+  version: number
+  uploadedAt: string
+  /** Before Submit the candidate can replace or remove it; after Submit only if staff disapproved it. */
+  canReplace: boolean
 }
 
 function Section({
@@ -218,15 +278,19 @@ function Section({
   linkErrors,
   onChange,
   onUpload,
+  onRemove,
+  onReplace,
   onLinkBlur,
 }: {
   category: OnboardingCategory
   answers: Record<string, unknown>
-  documents: Record<string, { originalFilename: string; version: number }>
+  documents: Record<string, OnboardingFile[]>
   links: Record<string, string[]>
   linkErrors: Record<string, string[]>
   onChange: (key: string, value: unknown) => void
-  onUpload: (key: string, file: File) => void
+  onUpload: (key: string, file: File) => Promise<boolean> | void
+  onRemove: (key: string, file: OnboardingFile) => void
+  onReplace: (key: string, file: OnboardingFile, next: File) => void
   onLinkBlur: (key: string, value: string) => void
 }) {
   return (
@@ -255,8 +319,9 @@ function Section({
             )}
             {q.type === 'url' && (
               <div>
-                <input
+                <textarea
                   className="w-full rounded-lg border-2 border-foreground/20 px-3 py-2 text-sm"
+                  rows={2}
                   inputMode="url"
                   placeholder="https://"
                   value={String((answers[q.key] as { value?: string } | undefined)?.value ?? answers[q.key] ?? '')}
@@ -264,7 +329,7 @@ function Section({
                   onBlur={(e) => onLinkBlur(q.key, e.target.value)}
                 />
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Web links only. Separate several links with a comma. Files go in the upload fields.
+                  Web links only. Add as many links as you need, one per line. Files go in the upload fields.
                 </p>
                 {(linkErrors[q.key] ?? []).map((err) => (
                   <p key={err} className="mt-1 text-xs text-destructive">
@@ -310,6 +375,7 @@ function Section({
                   type="file"
                   multiple
                   accept={UPLOAD_ACCEPT}
+                  className="block w-full max-w-full text-sm"
                   onChange={(e) => {
                     const list = e.target.files
                     if (!list?.length) return
@@ -324,10 +390,36 @@ function Section({
                 <p className="mt-1 text-xs text-muted-foreground">
                   Multiple files allowed. Each file needs its own description.
                 </p>
-                {documents[q.key] && (
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    Latest uploaded: {documents[q.key].originalFilename} (version {documents[q.key].version})
-                  </p>
+                {(documents[q.key] ?? []).length > 0 && (
+                  <ul className="mt-2 space-y-1 text-xs">
+                    {documents[q.key].map((doc) => (
+                      <li key={doc.id} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <span className="break-all">{doc.originalFilename}</span>
+                        {doc.canReplace ? (
+                          <>
+                            <label className="cursor-pointer text-accent underline">
+                              Replace
+                              <input
+                                type="file"
+                                accept={UPLOAD_ACCEPT}
+                                className="sr-only"
+                                onChange={(e) => {
+                                  const next = e.target.files?.[0]
+                                  if (next) onReplace(q.key, doc, next)
+                                  e.target.value = ''
+                                }}
+                              />
+                            </label>
+                            <button type="button" className="text-destructive underline" onClick={() => onRemove(q.key, doc)}>
+                              Remove
+                            </button>
+                          </>
+                        ) : (
+                          <span className="text-muted-foreground">Submitted · kept on file</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
             )}

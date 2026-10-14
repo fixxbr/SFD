@@ -4,7 +4,8 @@ import { onboardingFileKeys } from '@/lib/onboarding-form'
 import { resolveDocumentCategory, resolveDocumentType } from '@/lib/document-keys'
 import { markMatchingRequestItemsUploaded } from '@/lib/sync-request-status'
 import { jsonError, handleApiError, assertSameOrigin } from '@/lib/http'
-import { uploadCaseDocument } from '@/lib/documents'
+import { archiveCaseDocument, uploadCaseDocument } from '@/lib/documents'
+import { candidateCanReplaceFile } from '@/lib/candidate-file-rules'
 import { prisma } from '@/lib/db'
 import { resolveAllowedMimeType, validateCandidateUploadFile } from '@/lib/upload-validation'
 
@@ -93,6 +94,36 @@ export async function POST(request: Request, ctx: Ctx) {
         uploadedAt: document.uploadedAt,
       },
     })
+  } catch (error) {
+    return handleApiError(error)
+  }
+}
+
+/**
+ * Candidate removes one of their own files (or the old file of a replace).
+ * Allowed before Submit; after Submit only for a file an admin or lawyer disapproved.
+ */
+export async function DELETE(request: Request, ctx: Ctx) {
+  try {
+    assertSameOrigin(request)
+    const { token } = await ctx.params
+    const invite = await resolveInvite(token)
+    if (!invite) return jsonError('This onboarding link is invalid or has expired.', 404)
+    const documentId = new URL(request.url).searchParams.get('documentId') ?? ''
+    if (!documentId) return jsonError('documentId is required.')
+    const draft = await getOrCreateDraft(invite.caseId, invite.candidateId)
+    const file = await prisma.caseDocument.findFirst({
+      where: { id: documentId, caseId: invite.caseId, externalUrl: null, isCurrentVersion: true },
+    })
+    if (!file) return jsonError('File not found.', 404)
+    if (!candidateCanReplaceFile(file, draft)) {
+      return jsonError(
+        'This file has been submitted and can no longer be changed. You can add more files at any time.',
+        409,
+      )
+    }
+    await archiveCaseDocument({ documentId: file.id, actorId: null, reason: 'Removed by candidate before review' })
+    return NextResponse.json({ ok: true })
   } catch (error) {
     return handleApiError(error)
   }

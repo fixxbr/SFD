@@ -4,7 +4,7 @@ import { useState, type DragEvent, type FormEvent } from 'react'
 import { ExternalLink } from 'lucide-react'
 import type { ChecklistItem, DocumentVersion } from '@/lib/documents-checklist'
 import { formatUrlForDisplay, linkUrlsForDocument } from '@/lib/document-links'
-import { LINK_ONLY_ERROR, validateHttpUrl } from '@/lib/link-request-items'
+import { LINK_ONLY_ERROR, validateHttpUrl, normalizeSubmittedUrls } from '@/lib/link-request-items'
 import { formatDateTime } from '@/lib/format'
 
 const btn = 'rounded border border-[#D7DEE6] px-2 py-1 text-xs hover:bg-[#F3F5F7] disabled:opacity-50'
@@ -70,20 +70,32 @@ export function LinksPanel({
 
   async function addLink(e: FormEvent) {
     e.preventDefault()
-    const check = validateHttpUrl(url)
-    if (!check.ok) {
-      setError(check.error)
+    // Several links can be added at once, one per line (each is saved as its own link).
+    const hrefs: string[] = []
+    for (const value of normalizeSubmittedUrls(url)) {
+      const check = validateHttpUrl(value)
+      if (!check.ok) {
+        setError(`${value}: ${check.error}`)
+        return
+      }
+      hrefs.push(check.href)
+    }
+    if (!hrefs.length) {
+      setError('A URL is required.')
       return
     }
     setBusy('add')
     setError('')
     try {
-      const res = await fetch('/api/admin/links', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ candidateId, caseId, url: check.href, label: label.trim() }),
-      })
-      if (!res.ok) throw new Error(await readError(res, 'Unable to save the link.'))
+      for (const [index, href] of hrefs.entries()) {
+        const name = label.trim() && hrefs.length > 1 ? `${label.trim()} (${index + 1})` : label.trim()
+        const res = await fetch('/api/admin/links', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ candidateId, caseId, url: href, label: name }),
+        })
+        if (!res.ok) throw new Error(`${href}: ${await readError(res, 'Unable to save the link.')}`)
+      }
       setUrl('')
       setLabel('')
       onDone()
@@ -255,9 +267,10 @@ export function LinksPanel({
             />
           </label>
           <label className="text-xs font-medium text-[#5B6B7C]">
-            URL
-            <input
+            URLs (one per line)
+            <textarea
               className={`${input} mt-1`}
+              rows={2}
               inputMode="url"
               autoComplete="url"
               placeholder="https://"
@@ -270,7 +283,7 @@ export function LinksPanel({
             />
           </label>
           <button className={`${primary} self-end`} disabled={busy === 'add' || !url.trim()}>
-            {busy === 'add' ? 'Saving…' : 'Add link'}
+            {busy === 'add' ? 'Saving…' : 'Add links'}
           </button>
           {error && <p className="text-xs text-red-700 sm:col-span-3">{error}</p>}
         </form>

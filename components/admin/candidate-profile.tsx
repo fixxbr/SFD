@@ -1715,22 +1715,23 @@ function UploadModal({
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [file, setFile] = useState<File | null>(null)
+  // Every upload slot takes several files at once.
+  const [files, setFiles] = useState<File[]>([])
   const [dragOver, setDragOver] = useState(false)
 
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const formEl = e.currentTarget
     const key = String(new FormData(formEl).get('questionKey'))
-    const selected = file || (formEl.elements.namedItem('file') as HTMLInputElement).files?.[0]
-    if (!selected) {
-      setError('Choose a file to upload.')
+    const selected = files.length ? files : Array.from((formEl.elements.namedItem('file') as HTMLInputElement).files ?? [])
+    if (!selected.length) {
+      setError('Choose at least one file to upload.')
       return
     }
     setBusy(true)
     setError('')
     try {
-      await uploadDoc(candidateId, caseId, key, selected)
+      for (const one of selected) await uploadDoc(candidateId, caseId, key, one)
       onDone()
       onClose()
     } catch (err) {
@@ -1771,8 +1772,8 @@ function UploadModal({
           onDrop={(e) => {
             e.preventDefault()
             setDragOver(false)
-            const dropped = e.dataTransfer.files?.[0]
-            if (dropped) setFile(dropped)
+            const dropped = Array.from(e.dataTransfer.files ?? [])
+            if (dropped.length) setFiles((prev) => [...prev, ...dropped])
           }}
         >
           <span className="text-sm font-medium text-[#0C2340]">Drag & drop files here</span>
@@ -1780,23 +1781,33 @@ function UploadModal({
           <input
             name="file"
             type="file"
+            multiple
             accept={UPLOAD_ACCEPT}
             className="sr-only"
             disabled={busy}
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            onChange={(e) => {
+              const picked = Array.from(e.target.files ?? [])
+              if (picked.length) setFiles((prev) => [...prev, ...picked])
+              e.currentTarget.value = ''
+            }}
           />
         </label>
-        {file && (
-          <div className="rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm">
-            <p className="font-medium text-[#0C2340]">{file.name}</p>
+        {files.map((one, index) => (
+          <div key={`${one.name}-${index}`} className="rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-sm">
+            <p className="font-medium text-[#0C2340]">{one.name}</p>
             <p className="text-xs text-[#64748B]">
-              {file.type || 'file'} · {(file.size / 1024).toFixed(1)} KB
+              {one.type || 'file'} · {(one.size / 1024).toFixed(1)} KB
             </p>
-            <button type="button" className="mt-1 text-xs text-red-700 hover:underline" onClick={() => setFile(null)} disabled={busy}>
-              Remove selection
+            <button
+              type="button"
+              className="mt-1 text-xs text-red-700 hover:underline"
+              onClick={() => setFiles((prev) => prev.filter((_, i) => i !== index))}
+              disabled={busy}
+            >
+              Remove
             </button>
           </div>
-        )}
+        ))}
         {error && <p className="text-sm text-red-700">{error}</p>}
         <button className={primary} disabled={busy}>
           {busy ? 'Uploading…' : 'Upload'}

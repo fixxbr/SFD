@@ -4,6 +4,7 @@ import { formatVisa } from '@/lib/visa'
 import { jsonError, handleApiError } from '@/lib/http'
 import { prisma } from '@/lib/db'
 import { ActivityType, logActivity } from '@/lib/activity'
+import { candidateCanReplaceFile } from '@/lib/candidate-file-rules'
 
 type Ctx = { params: Promise<{ token: string }> }
 
@@ -47,13 +48,25 @@ async function getInvite(_request: Request, ctx: Ctx) {
         status: true,
         version: true,
         uploadedAt: true,
+        uploadedByType: true,
+        onboardingSubmissionId: true,
         externalUrl: true,
       },
+      orderBy: { uploadedAt: 'asc' },
     })
     // Files and links are sent separately: links are never shown as documents.
     const documents = rows
       .filter((row) => !row.externalUrl)
-      .map((row) => ({ id: row.id, questionKey: row.questionKey, originalFilename: row.originalFilename, status: row.status, version: row.version, uploadedAt: row.uploadedAt }))
+      .map((row) => ({
+        id: row.id,
+        questionKey: row.questionKey,
+        originalFilename: row.originalFilename,
+        status: row.status,
+        version: row.version,
+        uploadedAt: row.uploadedAt,
+        // Before Submit the candidate may replace or remove it; after Submit only if staff disapproved it.
+        canReplace: candidateCanReplaceFile(row, draft),
+      }))
     const links = rows
       .filter((row) => row.externalUrl)
       .map((row) => ({ id: row.id, questionKey: row.questionKey, url: row.externalUrl as string }))

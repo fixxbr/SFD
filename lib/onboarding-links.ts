@@ -31,9 +31,14 @@ export function checkOnboardingUrls(raw: string): { urls: string[]; errors: stri
 }
 
 /**
- * Make the saved links for one onboarding URL field match what the candidate typed:
- * valid URLs are saved as links (never documents), removed ones are archived.
+ * Save what the candidate typed in one onboarding URL field as links (never documents).
  * Invalid entries are reported and not saved.
+ *
+ * Nothing the candidate has sent is lost: after the form is submitted (the candidate can
+ * reopen the same link and add more at any time), removing a URL from the field does not
+ * delete the saved link. Only a link an admin or lawyer marked "needs replacement" or
+ * "rejected" can be dropped by the candidate. Before the first submit, a removed URL is
+ * archived so typos can be fixed.
  */
 export async function syncOnboardingUrlField(input: {
   candidateId: string
@@ -55,14 +60,22 @@ export async function syncOnboardingUrlField(input: {
       isCurrentVersion: true,
       status: { not: 'ARCHIVED' },
     },
-    select: { id: true, externalUrl: true },
+    select: { id: true, externalUrl: true, status: true },
   })
+  const submission = await prisma.o1OnboardingSubmission.findUnique({
+    where: { id: input.submissionId },
+    select: { status: true },
+  })
+  const submitted = submission?.status === 'SUBMITTED' || submission?.status === 'ACCEPTED'
+  const kept: string[] = []
   // Keep previously saved links while the field has an invalid entry, so a typo never deletes data.
-  if (!errors.length) {
-    for (const row of existing) {
-      if (row.externalUrl && !urls.includes(row.externalUrl)) {
-        await deleteCaseLink({ documentId: row.id, actorId: null })
-      }
+  for (const row of existing) {
+    if (!row.externalUrl || urls.includes(row.externalUrl)) continue
+    const disapproved = row.status === 'NEEDS_REPLACEMENT' || row.status === 'REJECTED'
+    if (!errors.length && (!submitted || disapproved)) {
+      await deleteCaseLink({ documentId: row.id, actorId: null })
+    } else {
+      kept.push(row.externalUrl)
     }
   }
   const have = new Set(existing.map((row) => row.externalUrl))
@@ -81,5 +94,5 @@ export async function syncOnboardingUrlField(input: {
     })
     await markMatchingRequestItemsUploaded({ caseId: input.caseId, questionKey: input.questionKey, documentId: link.id })
   }
-  return { urls, errors }
+  return { urls: [...kept, ...urls], errors }
 }

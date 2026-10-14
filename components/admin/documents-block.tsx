@@ -274,6 +274,7 @@ export function DocumentsBlock({
               Upload Document
               <input
                 type="file"
+                multiple
                 className="hidden"
                 accept={UPLOAD_ACCEPT}
                 onChange={(e) => {

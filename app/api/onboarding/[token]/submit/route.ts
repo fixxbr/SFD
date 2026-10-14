@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import type { CaseStatus } from '@prisma/client'
 import { getOrCreateDraft, onboardingCatalogForCase, resolveInvite } from '@/lib/onboarding'
 import { answerText, onboardingUrlQuestions, syncOnboardingUrlField } from '@/lib/onboarding-links'
 import { jsonError, handleApiError } from '@/lib/http'
@@ -7,6 +8,8 @@ import { formatVisa } from '@/lib/visa'
 import { ActivityType, logActivity } from '@/lib/activity'
 
 type Ctx = { params: Promise<{ token: string }> }
+
+const PRE_SUBMIT_STATUSES: CaseStatus[] = ['ASSESSMENT', 'QUALIFIED', 'ONBOARDING_NOT_SENT', 'ONBOARDING_SENT', 'ONBOARDING_IN_PROGRESS']
 
 export async function POST(_request: Request, ctx: Ctx) {
   try {
@@ -31,19 +34,26 @@ export async function POST(_request: Request, ctx: Ctx) {
       })
       if (result.errors.length) linkErrors[q.key] = result.errors
     }
+    // Candidates can submit through the same link as often as they need. A repeat submit
+    // never moves an accepted form or a case that is already past onboarding back a stage.
+    const resubmitted = draft.status === 'SUBMITTED' || draft.status === 'ACCEPTED'
     const updated = await prisma.o1OnboardingSubmission.update({
       where: { id: draft.id },
-      data: { status: 'SUBMITTED', submittedAt: new Date(), lastSavedAt: new Date() },
+      data: {
+        status: draft.status === 'ACCEPTED' ? 'ACCEPTED' : 'SUBMITTED',
+        submittedAt: new Date(),
+        lastSavedAt: new Date(),
+      },
     })
-    await prisma.case.update({
-      where: { id: invite.caseId },
+    await prisma.case.updateMany({
+      where: { id: invite.caseId, status: { in: PRE_SUBMIT_STATUSES } },
       data: { status: 'ONBOARDING_SUBMITTED' },
     })
     await logActivity({
       candidateId: invite.candidateId,
       caseId: invite.caseId,
       type: ActivityType.ONBOARDING_SUBMITTED,
-      message: `${formatVisa(invite.case.visaType)} onboarding submitted`,
+      message: `${formatVisa(invite.case.visaType)} onboarding ${resubmitted ? 're-submitted with more information' : 'submitted'}`,
       actorType: 'CANDIDATE',
     })
     return NextResponse.json({ status: updated.status, submittedAt: updated.submittedAt, linkErrors })
