@@ -88,14 +88,13 @@ clients@afterstem.ai`,
   },
   {
     key: 'O1_PROCESS_STARTED',
-    label: 'O-1 Process Started',
-    visaTypes: ['O_1A'],
-    subject: `${BRAND_NAME} — your O-1 journey has started`,
+    label: 'Process Started',
+    subject: `${BRAND_NAME} — your {{Visa Type}} journey has started`,
     body: `Hi {{Client Name}},
 
-Your O-1 journey has started.
+Your {{Visa Type}} journey has started.
 
-Welcome to the O-1 visa process with ${BRAND_NAME}.
+Welcome to the {{Visa Type}} process with ${BRAND_NAME}.
 
 Your initial onboarding is complete and our team is preparing the next stage.
 

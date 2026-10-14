@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server'
-import { getOrCreateDraft, resolveInvite } from '@/lib/onboarding'
+import { getOrCreateDraft, onboardingCatalogForCase, resolveInvite } from '@/lib/onboarding'
+import { onboardingFileKeys } from '@/lib/onboarding-form'
+import { resolveDocumentCategory, resolveDocumentType } from '@/lib/document-keys'
+import { markMatchingRequestItemsUploaded } from '@/lib/sync-request-status'
 import { jsonError, handleApiError, assertSameOrigin } from '@/lib/http'
 import { uploadCaseDocument } from '@/lib/documents'
-import { questionByKey } from '@/lib/onboarding-catalog'
+import { prisma } from '@/lib/db'
 import { resolveAllowedMimeType, validateCandidateUploadFile } from '@/lib/upload-validation'
 
 type Ctx = { params: Promise<{ token: string }> }
@@ -17,8 +20,9 @@ export async function POST(request: Request, ctx: Ctx) {
     const form = await request.formData()
     const questionKey = String(form.get('questionKey') ?? '')
     if (!questionKey) return jsonError('File and document type are required.')
-    const mapped = questionByKey(questionKey)
-    if (!mapped || mapped.question.type !== 'file') return jsonError('Unknown document type.')
+    // Only upload slots that are on this case's own visa form.
+    const fileKeys = onboardingFileKeys(await onboardingCatalogForCase(invite.case.visaType))
+    if (!fileKeys.has(questionKey)) return jsonError('Unknown document type.')
 
     const uploadId = String(form.get('uploadId') ?? '').trim()
     const chunkTotal = Number(form.get('chunkTotal') || 0)
@@ -63,6 +67,8 @@ export async function POST(request: Request, ctx: Ctx) {
       caseId: invite.caseId,
       onboardingSubmissionId: draft.id,
       questionKey,
+      category: resolveDocumentCategory(questionKey),
+      documentType: resolveDocumentType(questionKey),
       file: {
         buffer,
         mimeType,
@@ -73,6 +79,9 @@ export async function POST(request: Request, ctx: Ctx) {
       description: descCheck.description,
       append: true,
     })
+    await prisma.caseDocument.update({ where: { id: document.id }, data: { visaTypeCode: String(invite.case.visaType) } })
+    // Same as the document portal: a file for a requested item marks that item uploaded.
+    await markMatchingRequestItemsUploaded({ caseId: invite.caseId, questionKey: document.questionKey, documentId: document.id })
 
     return NextResponse.json({
       document: {

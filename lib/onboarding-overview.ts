@@ -1,4 +1,4 @@
-import { O1_CATEGORIES, type OnboardingQuestion } from '@/lib/onboarding-catalog'
+import { O1_CATEGORIES, type OnboardingCategory, type OnboardingQuestion } from '@/lib/onboarding-catalog'
 import {
   documentMatchesSlot,
   documentHasContent,
@@ -231,7 +231,7 @@ function buildOverviewFromChecklist(input: {
   caseStatus?: string | null
   hasInvite?: boolean
   reviews?: Record<string, { status?: string; note?: string }> | null
-  onboardingForm: boolean
+  catalog: OnboardingCategory[]
 }) {
   const { answers, checklist } = input
   const hasAnswerProgress = answerHasProgress(answers)
@@ -246,7 +246,7 @@ function buildOverviewFromChecklist(input: {
 
   // Questionnaire answers (text, URLs, lists). Files are listed below from the checklist.
   const answerSections: OverviewSection[] = []
-  for (const cat of O1_CATEGORIES) {
+  for (const cat of input.catalog) {
     const fields: OverviewField[] = cat.questions
       .filter((q) => q.type !== 'file')
       .map((q) => {
@@ -265,8 +265,7 @@ function buildOverviewFromChecklist(input: {
     answerSections.push({
       id: `answers_${cat.id}`,
       title: cat.title,
-      // Answers saved before a visa change stay readable, clearly marked as the O-1A form.
-      folderTitle: input.onboardingForm ? `${cat.number} ${cat.title} — answers` : `${cat.title} — earlier O-1A form answers`,
+      folderTitle: `${cat.number} ${cat.title} — answers`,
       fields,
       answeredCount: fields.filter((f) => f.hasValue).length,
       totalCount: fields.length,
@@ -307,11 +306,9 @@ function buildOverviewFromChecklist(input: {
     sections: [...answerSections, ...documentSections],
     hasAnswerProgress,
     hasDocumentProgress,
-    showSendInvite: input.onboardingForm && status === 'NOT_STARTED',
-    showResendInvite:
-      input.onboardingForm &&
-      (status === 'INVITED' || status === 'IN_PROGRESS' || status === 'MORE_INFORMATION_REQUIRED'),
-    statusHint: input.onboardingForm ? overviewStatusHint(status) : '',
+    showSendInvite: status === 'NOT_STARTED',
+    showResendInvite: status === 'INVITED' || status === 'IN_PROGRESS' || status === 'MORE_INFORMATION_REQUIRED',
+    statusHint: overviewStatusHint(status),
   }
 }
 
@@ -329,8 +326,8 @@ export function buildOnboardingOverview(input: {
    * and links are left to the Links section.
    */
   checklist?: Checklist | null
-  /** False for visa types without the (O-1A) onboarding form: no invite actions or onboarding hints. */
-  onboardingForm?: boolean
+  /** The case's own onboarding form (lib/onboarding-form.ts); answers are listed by its sections. */
+  catalog?: OnboardingCategory[] | null
 }): {
   status: OnboardingDisplayStatus
   sections: OverviewSection[]
@@ -342,7 +339,7 @@ export function buildOnboardingOverview(input: {
 } {
   const answers = (input.answers ?? {}) as Record<string, unknown>
   if (input.checklist) {
-    return buildOverviewFromChecklist({ ...input, answers, checklist: input.checklist, onboardingForm: input.onboardingForm !== false })
+    return buildOverviewFromChecklist({ ...input, answers, checklist: input.checklist, catalog: input.catalog ?? O1_CATEGORIES })
   }
   const catalogDocs = activeDocuments(input.documents ?? [])
   const evidenceProgress = (input.documents ?? []).some(

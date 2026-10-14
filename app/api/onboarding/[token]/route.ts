@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
-import { getOrCreateDraft, isInviteForOtherVisa, resolveInvite } from '@/lib/onboarding'
+import { getOrCreateDraft, onboardingCatalogForCase, resolveInvite } from '@/lib/onboarding'
+import { formatVisa } from '@/lib/visa'
 import { jsonError, handleApiError } from '@/lib/http'
 import { prisma } from '@/lib/db'
 import { ActivityType, logActivity } from '@/lib/activity'
-import { O1_CATEGORIES } from '@/lib/onboarding-catalog'
 
 type Ctx = { params: Promise<{ token: string }> }
 
@@ -21,15 +21,7 @@ async function getInvite(_request: Request, ctx: Ctx) {
   try {
     const { token } = await ctx.params
     const invite = await resolveInvite(token)
-    if (!invite) {
-      if (await isInviteForOtherVisa(token)) {
-        return jsonError(
-          'This onboarding form is only for O-1A cases. Your Afterstem team will send you a document request for your visa type instead.',
-          410,
-        )
-      }
-      return jsonError('This onboarding link is invalid or has expired.', 404)
-    }
+    if (!invite) return jsonError('This onboarding link is invalid or has expired.', 404)
 
     if (!invite.usedAt) {
       await prisma.onboardingInvite.update({ where: { id: invite.id }, data: { usedAt: new Date() } })
@@ -64,6 +56,8 @@ async function getInvite(_request: Request, ctx: Ctx) {
         email: invite.candidate.email,
       },
       caseNumber: invite.case.caseNumber,
+      visaType: invite.case.visaType,
+      visaLabel: formatVisa(invite.case.visaType),
       submission: {
         id: draft.id,
         status: draft.status,
@@ -72,7 +66,8 @@ async function getInvite(_request: Request, ctx: Ctx) {
         submittedAt: draft.submittedAt,
       },
       documents,
-      catalog: O1_CATEGORIES,
+      // The form for this case's own visa type.
+      catalog: await onboardingCatalogForCase(invite.case.visaType),
     })
   } catch (error) {
     return handleApiError(error)

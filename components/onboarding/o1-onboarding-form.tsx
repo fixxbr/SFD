@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { O1_CATEGORIES, type OnboardingCategory } from '@/lib/onboarding-catalog'
+import type { OnboardingCategory } from '@/lib/onboarding-catalog'
 import { formatTime } from '@/lib/format'
+import { UPLOAD_ACCEPT } from '@/lib/upload-validation'
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 
@@ -16,6 +17,9 @@ export function O1OnboardingForm({ token }: { token: string }) {
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
   const [submitted, setSubmitted] = useState(false)
+  // The server sends the form for this candidate's own visa type.
+  const [catalog, setCatalog] = useState<OnboardingCategory[]>([])
+  const [visaLabel, setVisaLabel] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -25,6 +29,8 @@ export function O1OnboardingForm({ token }: { token: string }) {
         if (!res.ok) throw new Error(json.error ?? 'Unable to open this link')
         if (cancelled) return
         setName(json.candidate.fullLegalName)
+        setCatalog(json.catalog ?? [])
+        setVisaLabel(json.visaLabel ?? '')
         setAnswers(json.submission.answers ?? {})
         setStatus(json.submission.status)
         setLastSavedAt(json.submission.lastSavedAt)
@@ -112,14 +118,14 @@ export function O1OnboardingForm({ token }: { token: string }) {
   return (
     <div className="space-y-6">
       <div>
-        <p className="eyebrow">O-1 onboarding</p>
+        <p className="eyebrow">{visaLabel ? `${visaLabel} onboarding` : 'Onboarding'}</p>
         <h1 className="mt-2 text-3xl font-medium">Welcome, {name}</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           Your answers and files save to Afterstem automatically. This link is unique to your case.
         </p>
         <p className="mt-2 text-xs font-medium text-accent">{saveLabel}</p>
       </div>
-      {O1_CATEGORIES.map((category) => (
+      {catalog.map((category) => (
         <Section
           key={category.id}
           category={category}
@@ -152,11 +158,12 @@ function Section({
   return (
     <section className="paper-card p-5 sm:p-6">
       <h2 className="font-display text-2xl font-semibold">{category.folderTitle}</h2>
-      <p className="mt-1 text-sm text-muted-foreground">{category.description}</p>
+      {category.description ? <p className="mt-1 text-sm text-muted-foreground">{category.description}</p> : null}
       <div className="mt-4 space-y-4">
         {category.questions.map((q) => (
           <div key={q.key}>
             <label className="mb-1 block text-sm font-semibold">{q.label}</label>
+            {q.help ? <p className="mb-1 text-xs text-muted-foreground">{q.help}</p> : null}
             {q.type === 'textarea' && (
               <textarea
                 className="w-full rounded-lg border-2 border-foreground/20 px-3 py-2 text-sm"
@@ -196,6 +203,7 @@ function Section({
                 <input
                   type="file"
                   multiple
+                  accept={UPLOAD_ACCEPT}
                   onChange={(e) => {
                     const list = e.target.files
                     if (!list?.length) return

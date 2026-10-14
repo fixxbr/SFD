@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getOrCreateDraft, resolveInvite } from '@/lib/onboarding'
 import { jsonError, handleApiError } from '@/lib/http'
 import { prisma } from '@/lib/db'
+import { formatVisa } from '@/lib/visa'
 import { ActivityType, logActivity } from '@/lib/activity'
 
 type Ctx = { params: Promise<{ token: string }> }
@@ -24,7 +25,7 @@ export async function POST(_request: Request, ctx: Ctx) {
       candidateId: invite.candidateId,
       caseId: invite.caseId,
       type: ActivityType.ONBOARDING_SUBMITTED,
-      message: 'O-1 onboarding submitted',
+      message: `${formatVisa(invite.case.visaType)} onboarding submitted`,
       actorType: 'CANDIDATE',
     })
     return NextResponse.json({ status: updated.status, submittedAt: updated.submittedAt })

@@ -14,7 +14,7 @@ import { questionByKey } from '@/lib/onboarding-catalog'
 import { buildChecklist, type Checklist, type VisaTemplateSlot } from '@/lib/documents-checklist'
 import { defsFromRequestItems, OTHER_SUPPORTING_DOCUMENT_KEY } from '@/lib/document-keys'
 import { buildOnboardingOverview } from '@/lib/onboarding-overview'
-import { hasOnboardingForm } from '@/lib/onboarding-visa'
+import { onboardingCatalogFor } from '@/lib/onboarding-form'
 import { DocumentPreviewModal } from '@/components/admin/document-preview-modal'
 import { DocumentFileName } from '@/components/admin/document-file-name'
 import { formatUrlForDisplay } from '@/lib/document-links'
@@ -693,13 +693,11 @@ export function CandidateProfile({
           )}
 
           {!limited && (
-            <Section
-              id="onboarding"
-              title={hasOnboardingForm(currentCase?.visaType) ? 'Onboarding / Submitted Information' : 'Submitted Documents'}
-            >
+            <Section id="onboarding" title="Onboarding / Submitted Information">
               <OnboardingBlock
                 currentCase={currentCase}
                 checklist={checklist}
+                templateItems={templateItems}
                 canReview={can(userRole, 'onboarding:review')}
                 lawyerMode={lawyerMode}
                 onDone={onDone}
@@ -1812,12 +1810,14 @@ function UploadModal({
 function OnboardingBlock({
   currentCase,
   checklist,
+  templateItems,
   canReview,
   lawyerMode,
   onDone,
 }: {
   currentCase: any
   checklist: Checklist
+  templateItems: VisaTemplateSlot[]
   canReview: boolean
   lawyerMode?: boolean
   onDone: () => void
@@ -1859,9 +1859,10 @@ function OnboardingBlock({
       hasInvite: Boolean(currentCase.onboardingInvites?.length),
       reviews,
       checklist,
-      onboardingForm: hasOnboardingForm(currentCase.visaType),
+      // Answers are shown by the sections of this case's own visa form.
+      catalog: onboardingCatalogFor(currentCase.visaType, templateItems),
     })
-  }, [currentCase, checklist])
+  }, [currentCase, checklist, templateItems])
 
   if (!currentCase) return <p className="text-sm text-[#5B6B7C]">Create a case first.</p>
 
@@ -1900,13 +1901,7 @@ function OnboardingBlock({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        {hasOnboardingForm(currentCase.visaType) ? (
-          <StatusBadge status={overview.status} />
-        ) : (
-          <span className="text-xs text-[#5B6B7C]">
-            The onboarding form is for O-1A cases only. Collect documents for this visa with Request Documents.
-          </span>
-        )}
+        <StatusBadge status={overview.status} />
         {!lawyerMode && overview.showSendInvite && (
           <button type="button" className={primary} disabled={inviteBusy} onClick={() => void invite(false)}>
             {inviteBusy ? 'Sending…' : 'Send onboarding invite'}
@@ -2112,11 +2107,9 @@ function ProgressBlock({ currentCase, counts, canWrite, onDone }: any) {
         <p className="mt-2">
           Docs: {counts.accepted} accepted · {counts.missing} missing · {counts.required} required · {counts.files} files
         </p>
-        {hasOnboardingForm(currentCase?.visaType) && (
-          <p className="mt-1 text-[#5B6B7C]">
-            Onboarding: <StatusBadge status={overviewStatus} />
-          </p>
-        )}
+        <p className="mt-1 text-[#5B6B7C]">
+          Onboarding: <StatusBadge status={overviewStatus} />
+        </p>
         <ul className="mt-3 space-y-1 text-xs text-[#5B6B7C]">
           {(currentCase.statusHistory ?? []).slice(0, 8).map((item: any) => (
             <li key={item.id}>{formatDateTime(item.createdAt)} — {item.fromStatus ?? '—'} → {item.toStatus}</li>

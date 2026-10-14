@@ -2,7 +2,7 @@ import { SiteHeader } from '@/components/site-header'
 import { SiteFooter } from '@/components/site-footer'
 import { O1OnboardingForm } from '@/components/onboarding/o1-onboarding-form'
 
-export const metadata = { title: 'O-1 onboarding | Afterstem' }
+export const metadata = { title: 'Onboarding | Afterstem' }
 
 export default async function OnboardingPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params
