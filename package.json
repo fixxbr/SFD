@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && (prisma migrate deploy || (sleep 20 && prisma migrate deploy)) && next build",
+    "build:railway": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
@@ -17,6 +18,9 @@
     "seed:finance-templates": "tsx scripts/seed-finance-templates.ts",
     "db:migrate": "prisma migrate deploy || (sleep 20 && prisma migrate deploy)",
     "db:push": "prisma db push"
+  },
+  "engines": {
+    "node": ">=20.9.0"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.901.0",
