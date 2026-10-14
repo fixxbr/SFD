@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { DocumentStatus } from '@prisma/client'
-import { requirePermission } from '@/lib/auth'
+import { requirePermission, requireUser } from '@/lib/auth'
 import { handleApiError, jsonError, assertSameOrigin } from '@/lib/http'
 import { archiveCaseDocument, documentAccessUrl, reviewDocument } from '@/lib/documents'
 import { prisma } from '@/lib/db'
@@ -78,6 +78,8 @@ export async function GET(request: Request, ctx: Ctx) {
 export async function PATCH(request: Request, ctx: Ctx) {
   try {
     assertSameOrigin(request)
+    // Signed-in check first: anonymous callers get 401, not a body error.
+    await requireUser()
     const { documentId } = await ctx.params
     const body = (await request.json()) as {
       status?: DocumentStatus

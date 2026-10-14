@@ -47,6 +47,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true, candidateId: candidate.id })
   } catch (error) {
+    if (error instanceof SyntaxError) {
+      return NextResponse.json({ error: 'Please fill in the form and try again.' }, { status: 400 })
+    }
     console.error('[assessment]', error instanceof Error ? error.message : 'failed')
     return NextResponse.json(
       { error: 'Unable to save your submission right now. Please try again or email hello@afterstem.ai.' },

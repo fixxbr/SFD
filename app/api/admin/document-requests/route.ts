@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requirePermission } from '@/lib/auth'
+import { requirePermission, requireUser } from '@/lib/auth'
 import { handleApiError, jsonError, assertSameOrigin, publicAppUrlFromRequest } from '@/lib/http'
 import {
   createDocumentRequestPackage,
@@ -70,6 +70,8 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     assertSameOrigin(request)
+    // Signed-in check first: anonymous callers get 401, not a body error.
+    await requireUser()
     const publicBaseUrl = publicAppUrlFromRequest(request)
     const body = (await request.json()) as {
       action?: string

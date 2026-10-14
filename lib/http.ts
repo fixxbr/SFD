@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { AssignLawyerError } from '@/lib/assign-lawyer'
 import { AuthError } from '@/lib/auth'
 import { BRAND_DOMAIN } from '@/lib/brand'
@@ -44,6 +45,21 @@ export function handleApiError(error: unknown) {
   if (error instanceof StorageError) {
     console.error('[storage-api]', error.message)
     return jsonError(error.message, error.status || 400)
+  }
+  // Bad input from the caller is a 4xx, not a server error.
+  if (error instanceof SyntaxError) return jsonError('The request body is not valid JSON.', 400)
+  if (error instanceof Prisma.PrismaClientValidationError) return jsonError('Some of the submitted values are not valid.', 400)
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    // P2023: malformed id (e.g. not a UUID) — nothing can match it.
+    if (error.code === 'P2023' || error.code === 'P2025') return jsonError('Not found.', 404)
+    if (error.code === 'P2003') return jsonError('A linked record does not exist.', 400)
+    if (error.code === 'P2002') return jsonError('That record already exists.', 409)
+  }
+  if (error instanceof Error && /^(Candidate|Case|Document|Payment|File|Link) not found\.?$/.test(error.message)) {
+    return jsonError(error.message, 404)
+  }
+  if (error instanceof TypeError && error.message.includes('Content-Type was not one of')) {
+    return jsonError('Send this request as a file upload (multipart/form-data).', 415)
   }
   if (error instanceof Error) {
     const known = [

@@ -15,8 +15,8 @@ import { normalizeEmail } from '@/lib/normalize'
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as { email?: string; password?: string }
-    const email = normalizeEmail(body.email ?? '')
-    const password = body.password ?? ''
+    const email = normalizeEmail(typeof body.email === 'string' ? body.email : '')
+    const password = typeof body.password === 'string' ? body.password : ''
     const ip = await clientIp()
 
     if (!email || !password) return jsonError('Email and password are required.')
@@ -57,6 +57,7 @@ export async function POST(request: Request) {
     })
     return response
   } catch (error) {
+    if (error instanceof SyntaxError) return jsonError('Enter your email and password.', 400)
     console.error('[admin-login]', error instanceof Error ? error.message : 'unknown error')
     // Surface common misconfig to operators without leaking internals to clients.
     if (error instanceof Error) {

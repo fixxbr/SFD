@@ -18,7 +18,7 @@ const prismaMock = {
 const lawyer = { id: 'lawyer-1', fullName: 'Attorney', email: 'l@x.com', role: 'ATTORNEY', status: 'ACTIVE' }
 
 vi.mock('@/lib/db', () => ({ prisma: prismaMock }))
-vi.mock('@/lib/auth', () => ({ requirePermission: vi.fn(async () => lawyer), AuthError }))
+vi.mock('@/lib/auth', () => ({ requirePermission: vi.fn(async () => lawyer), requireUser: vi.fn(async () => lawyer), AuthError }))
 vi.mock('@/lib/http', () => ({
   assertSameOrigin: () => {},
   publicAppUrlFromRequest: () => 'https://example.com',
