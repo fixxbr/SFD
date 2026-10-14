@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { onboardingCatalogFor, onboardingFileKeys } from '@/lib/onboarding-form'
-import { O1_CATEGORIES } from '@/lib/onboarding-catalog'
 import { SEED_VISA_TEMPLATES } from '@/lib/visa-template-seed-data'
-import { isAdditionalEvidenceKey } from '@/lib/document-keys'
 import { isLinkRequestKey } from '@/lib/link-request-items'
 import { buildChecklist } from '@/lib/documents-checklist'
 import { buildOnboardingOverview } from '@/lib/onboarding-overview'

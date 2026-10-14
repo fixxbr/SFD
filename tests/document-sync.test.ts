@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { buildChecklist, type DocumentVersion } from '@/lib/documents-checklist'
 import { countChecklist, missingChecklistItems, requirementItems } from '@/lib/document-counts'
 import { buildOnboardingOverview } from '@/lib/onboarding-overview'
-import { isAdditionalEvidenceKey } from '@/lib/document-keys'
 import { SEED_VISA_TEMPLATES } from '@/lib/visa-template-seed-data'
 import {
   isLinkRequestKey,
