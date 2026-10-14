@@ -15,6 +15,7 @@ import { lawyerOptions, referralOptions } from '@/lib/staff-options'
 import { admin } from '@/lib/admin/ui'
 import { cn } from '@/lib/utils'
 import { downloadBulkCandidates } from '@/lib/admin-downloads'
+import { downloadCandidateFolders } from '@/lib/bulk-folders-client'
 import type { VisaType } from '@prisma/client'
 
 const btn = admin.btnGhost
@@ -593,11 +594,8 @@ export function CandidatesTable({
               onClick={() => {
                 setExportError('')
                 setExportBusy('all')
-                void downloadBulkCandidates({
-                  candidateIds: [...selected],
-                  includeDocuments: true,
-                  includeData: true,
-                })
+                // Same folder-per-candidate ZIP as "Download All", for the selected candidates.
+                void downloadCandidateFolders({ ids: [...selected] })
                   .catch((err) =>
                     setExportError(err instanceof Error ? err.message : "We couldn't prepare this download. Please try again."),
                   )

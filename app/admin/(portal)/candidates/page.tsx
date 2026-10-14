@@ -11,6 +11,7 @@ import { VISA_LABELS } from '@/lib/visa'
 import type { VisaType } from '@prisma/client'
 import { isLawyerUser } from '@/lib/lawyer-access'
 import { CandidatesBackupActions } from '@/components/admin/candidates-backup-actions'
+import { CandidateFoldersActions } from '@/components/admin/candidate-folders-actions'
 
 export const dynamic = 'force-dynamic'
 
@@ -67,6 +68,9 @@ export default async function CandidatesPage({
         ]}
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            {!lawyerMode && can(user.role, 'documents:read') && (
+              <CandidateFoldersActions canUpload={can(user.role, 'candidates:write') && can(user.role, 'documents:write')} />
+            )}
             {!lawyerMode && user.role === 'SUPER_ADMIN' && <CandidatesBackupActions />}
             {can(user.role, 'candidates:write') ? (
               <Link href="/admin/candidates?create=1" className={admin.btnPrimary}>
