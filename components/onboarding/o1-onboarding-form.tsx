@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import type { OnboardingCategory } from '@/lib/onboarding-catalog'
+import { documentMatchesSlot } from '@/lib/documents-checklist'
 import { formatTime } from '@/lib/format'
 import { UPLOAD_ACCEPT } from '@/lib/upload-validation'
 
@@ -20,6 +21,10 @@ export function O1OnboardingForm({ token }: { token: string }) {
   // The server sends the form for this candidate's own visa type.
   const [catalog, setCatalog] = useState<OnboardingCategory[]>([])
   const [visaLabel, setVisaLabel] = useState('')
+  /** Links saved from URL fields, by field key. Links are kept apart from uploaded files. */
+  const [links, setLinks] = useState<Record<string, string[]>>({})
+  const [linkErrors, setLinkErrors] = useState<Record<string, string[]>>({})
+  const [uploadedKeys, setUploadedKeys] = useState<string[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -37,6 +42,10 @@ export function O1OnboardingForm({ token }: { token: string }) {
         const map: Record<string, { originalFilename: string; version: number }> = {}
         for (const doc of json.documents ?? []) map[doc.questionKey] = doc
         setDocuments(map)
+        setUploadedKeys((json.documents ?? []).map((doc: { questionKey: string }) => doc.questionKey))
+        const linkMap: Record<string, string[]> = {}
+        for (const link of json.links ?? []) (linkMap[link.questionKey] ??= []).push(link.url)
+        setLinks(linkMap)
         if (json.submission.status === 'SUBMITTED' || json.submission.status === 'ACCEPTED') setSubmitted(true)
       })
       .catch((err) => setError(err.message))
@@ -88,19 +97,56 @@ export function O1OnboardingForm({ token }: { token: string }) {
         inviteToken: token,
       })
       const document = json.document as { originalFilename: string; version: number } | undefined
-      if (document) setDocuments((prev) => ({ ...prev, [questionKey]: document }))
+      if (document) {
+        setDocuments((prev) => ({ ...prev, [questionKey]: document }))
+        setUploadedKeys((prev) => [...prev, questionKey])
+      }
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Upload did not complete. Please try again.')
     }
   }
 
+  /** Save one URL field as links when the candidate leaves it (checked on the server too). */
+  async function saveLinks(questionKey: string, value: string) {
+    const res = await fetch(`/api/onboarding/${token}/links`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ questionKey, value }),
+    })
+    const json = (await res.json().catch(() => ({}))) as { urls?: string[]; errors?: string[]; error?: string }
+    if (json.urls) setLinks((prev) => ({ ...prev, [questionKey]: json.urls! }))
+    setLinkErrors((prev) => ({
+      ...prev,
+      [questionKey]: json.errors?.length ? json.errors : json.error ? [json.error] : [],
+    }))
+  }
+
   async function submit() {
+    // Make sure the latest URL fields are saved before submitting (the server re-checks them too).
+    await fetch(`/api/onboarding/${token}/save`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answers }),
+    }).catch(() => {})
     const res = await fetch(`/api/onboarding/${token}/submit`, { method: 'POST' })
     if (res.ok) {
       setSubmitted(true)
       setStatus('SUBMITTED')
     }
   }
+
+  // Not sent yet — shown as information only; submitting is always allowed.
+  const notSent = catalog.flatMap((category) =>
+    category.questions
+      .filter((q) =>
+        q.type === 'file'
+          ? !uploadedKeys.some((key) => documentMatchesSlot(key, q.key))
+          : q.type === 'url'
+            ? !(links[q.key]?.length)
+            : false,
+      )
+      .map((q) => ({ key: q.key, label: q.label, section: category.title })),
+  )
 
   if (loading) return <p className="text-sm text-muted-foreground">Loading your Afterstem onboarding…</p>
   if (error) return <p className="text-sm text-destructive">{error}</p>
@@ -131,10 +177,32 @@ export function O1OnboardingForm({ token }: { token: string }) {
           category={category}
           answers={answers}
           documents={documents}
+          links={links}
+          linkErrors={linkErrors}
           onChange={(key, value) => setAnswers((prev) => ({ ...prev, [key]: value }))}
           onUpload={upload}
+          onLinkBlur={saveLinks}
         />
       ))}
+      <section className="paper-card p-5 sm:p-6" data-testid="not-sent">
+        <h2 className="font-display text-xl font-semibold">Not sent yet</h2>
+        {notSent.length ? (
+          <>
+            <p className="mt-1 text-sm text-muted-foreground">
+              You can submit now and send these later through this same link, as many times as you need.
+            </p>
+            <ul className="mt-3 grid gap-1 text-sm sm:grid-cols-2">
+              {notSent.map((item) => (
+                <li key={item.key}>
+                  {item.label} <span className="text-xs text-muted-foreground">· {item.section}</span>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p className="mt-1 text-sm text-muted-foreground">Every document and link on your list has been sent.</p>
+        )}
+      </section>
       <button type="button" onClick={submit} className="sketch-btn sketch-btn-accent px-6 py-3 text-sm">
         Submit onboarding
       </button>
@@ -146,14 +214,20 @@ function Section({
   category,
   answers,
   documents,
+  links,
+  linkErrors,
   onChange,
   onUpload,
+  onLinkBlur,
 }: {
   category: OnboardingCategory
   answers: Record<string, unknown>
   documents: Record<string, { originalFilename: string; version: number }>
+  links: Record<string, string[]>
+  linkErrors: Record<string, string[]>
   onChange: (key: string, value: unknown) => void
   onUpload: (key: string, file: File) => void
+  onLinkBlur: (key: string, value: string) => void
 }) {
   return (
     <section className="paper-card p-5 sm:p-6">
@@ -172,12 +246,44 @@ function Section({
                 onChange={(e) => onChange(q.key, { value: e.target.value })}
               />
             )}
-            {(q.type === 'text' || q.type === 'url') && (
+            {q.type === 'text' && (
               <input
                 className="w-full rounded-lg border-2 border-foreground/20 px-3 py-2 text-sm"
                 value={String((answers[q.key] as { value?: string } | undefined)?.value ?? answers[q.key] ?? '')}
                 onChange={(e) => onChange(q.key, { value: e.target.value })}
               />
+            )}
+            {q.type === 'url' && (
+              <div>
+                <input
+                  className="w-full rounded-lg border-2 border-foreground/20 px-3 py-2 text-sm"
+                  inputMode="url"
+                  placeholder="https://"
+                  value={String((answers[q.key] as { value?: string } | undefined)?.value ?? answers[q.key] ?? '')}
+                  onChange={(e) => onChange(q.key, { value: e.target.value })}
+                  onBlur={(e) => onLinkBlur(q.key, e.target.value)}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Web links only. Separate several links with a comma. Files go in the upload fields.
+                </p>
+                {(linkErrors[q.key] ?? []).map((err) => (
+                  <p key={err} className="mt-1 text-xs text-destructive">
+                    {err}
+                  </p>
+                ))}
+                {(links[q.key] ?? []).length > 0 && (
+                  <ul className="mt-1 space-y-0.5 text-xs">
+                    {links[q.key].map((href) => (
+                      <li key={href}>
+                        Saved as a link:{' '}
+                        <a href={href} target="_blank" rel="noopener noreferrer" className="break-all text-accent underline">
+                          {href}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             )}
             {q.type === 'select' && (
               <select

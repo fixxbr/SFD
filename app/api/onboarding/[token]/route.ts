@@ -38,8 +38,8 @@ async function getInvite(_request: Request, ctx: Ctx) {
     }
 
     const draft = await getOrCreateDraft(invite.caseId, invite.candidateId)
-    const documents = await prisma.caseDocument.findMany({
-      where: { caseId: invite.caseId, isCurrentVersion: true },
+    const rows = await prisma.caseDocument.findMany({
+      where: { caseId: invite.caseId, isCurrentVersion: true, status: { not: 'ARCHIVED' } },
       select: {
         id: true,
         questionKey: true,
@@ -47,8 +47,16 @@ async function getInvite(_request: Request, ctx: Ctx) {
         status: true,
         version: true,
         uploadedAt: true,
+        externalUrl: true,
       },
     })
+    // Files and links are sent separately: links are never shown as documents.
+    const documents = rows
+      .filter((row) => !row.externalUrl)
+      .map((row) => ({ id: row.id, questionKey: row.questionKey, originalFilename: row.originalFilename, status: row.status, version: row.version, uploadedAt: row.uploadedAt }))
+    const links = rows
+      .filter((row) => row.externalUrl)
+      .map((row) => ({ id: row.id, questionKey: row.questionKey, url: row.externalUrl as string }))
 
     return NextResponse.json({
       candidate: {
@@ -66,6 +74,7 @@ async function getInvite(_request: Request, ctx: Ctx) {
         submittedAt: draft.submittedAt,
       },
       documents,
+      links,
       // The form for this case's own visa type.
       catalog: await onboardingCatalogForCase(invite.case.visaType),
     })

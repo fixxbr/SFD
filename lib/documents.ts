@@ -275,7 +275,8 @@ export async function reviewDocument(input: {
  */
 export async function archiveCaseDocument(input: {
   documentId: string
-  actorId: string
+  /** Staff member removing it; null when the candidate removes their own link. */
+  actorId: string | null
   reason?: string | null
 }) {
   const document = await prisma.caseDocument.findUnique({ where: { id: input.documentId } })
@@ -290,7 +291,7 @@ export async function archiveCaseDocument(input: {
         ? `${document.adminNote ? `${document.adminNote}\n` : ''}Removed: ${input.reason}`
         : document.adminNote,
       reviewedAt: new Date(),
-      reviewedById: input.actorId,
+      reviewedById: input.actorId ?? null,
     },
   })
 
@@ -312,7 +313,7 @@ export async function archiveCaseDocument(input: {
     caseId: document.caseId,
     type: ActivityType.DOCUMENT_REJECTED,
     message: `${document.documentType} removed from active checklist (v${document.version} retained in history)`,
-    actorType: 'ADMIN',
+    actorType: input.actorId ? 'ADMIN' : 'CANDIDATE',
     actorId: input.actorId,
     metadata: { documentId: document.id, reason: input.reason ?? null },
   })

@@ -12,7 +12,7 @@ describe('every visa type gets an onboarding form for its own visa', () => {
     it(`${template.visaTypeCode}: asks for exactly that visa's documents`, () => {
       const catalog = onboardingCatalogFor(template.visaTypeCode, template.items)
       if (template.visaTypeCode === 'O_1A') {
-        expect(catalog).toBe(O1_CATEGORIES)
+        expect(catalog.slice(1)).toEqual(O1_CATEGORIES)
         return
       }
       const visaKeys = template.items
@@ -23,7 +23,7 @@ describe('every visa type gets an onboarding form for its own visa', () => {
       // Sections are this visa's own categories (plus general info and additional), never the O-1A form's.
       const visaCategories = new Set(template.items.map((i) => i.category.replace(/^\d+\s+/, '')))
       for (const c of catalog) {
-        if (c.id === 'profile' || c.id === 'additional') continue
+        if (c.id === 'personal' || c.id === 'profile' || c.id === 'additional') continue
         expect(visaCategories.has(c.title), c.title).toBe(true)
       }
       expect(catalog.map((c) => c.title).join(' | ')).not.toMatch(/Proposed O-1/)

@@ -11,6 +11,43 @@ export type OnboardingTemplateItem = {
   sortOrder?: number | null
 }
 
+/** Personal and immigration details — asked on every visa's form, O-1A included. */
+export const PERSONAL_SECTION: OnboardingCategory = {
+  id: 'personal',
+  number: '',
+  title: 'Personal & Immigration Information',
+  folderTitle: 'Personal & Immigration Information',
+  description: 'Your personal details and current U.S. immigration status.',
+  questions: [
+    { key: 'date_of_birth', label: 'Date of birth', type: 'text' },
+    { key: 'country_of_birth', label: 'Country of birth', type: 'text' },
+    { key: 'nationality', label: 'Nationality / citizenship', type: 'text' },
+    { key: 'current_address', label: 'Current residential address', type: 'textarea' },
+    { key: 'phone', label: 'Phone number', type: 'text' },
+    { key: 'passport_number', label: 'Passport number', type: 'text' },
+    { key: 'passport_expiry', label: 'Passport expiry date', type: 'text' },
+    { key: 'in_us', label: 'Are you currently in the United States?', type: 'select', options: ['Yes', 'No'] },
+    {
+      key: 'current_immigration_status',
+      label: 'Current immigration status',
+      type: 'select',
+      options: [
+        'H-1B', 'F-1', 'F-1 OPT / STEM OPT', 'L-1', 'O-1', 'J-1', 'TN', 'E-2', 'B-1 / B-2',
+        'H-4 / L-2 / dependent', 'Green card in process', 'Outside the U.S.', 'Other',
+      ],
+    },
+    { key: 'status_expiry', label: 'Status / I-94 expiry date', type: 'text' },
+    { key: 'last_us_entry', label: 'Date of last entry to the U.S.', type: 'text' },
+    {
+      key: 'prior_visa_refusals',
+      label: 'Have you ever been refused a U.S. visa, entry or immigration benefit?',
+      type: 'select',
+      options: ['No', 'Yes'],
+    },
+    { key: 'prior_visa_refusals_details', label: 'If yes, please explain', type: 'textarea' },
+  ],
+}
+
 /** General questions every candidate answers, whatever the visa. Keys match the O-1A form so answers stay comparable. */
 const PROFILE_QUESTIONS: OnboardingQuestion[] = [
   { key: 'current_employer', label: 'Current employer / organization', type: 'text' },
@@ -48,9 +85,10 @@ export function onboardingCatalogFor(
   visaType: string | null | undefined,
   templateItems: OnboardingTemplateItem[],
 ): OnboardingCategory[] {
-  if (String(visaType) === 'O_1A' || !templateItems.length) return O1_CATEGORIES
+  if (String(visaType) === 'O_1A' || !templateItems.length) return [PERSONAL_SECTION, ...O1_CATEGORIES]
 
   const sections: OnboardingCategory[] = [
+    PERSONAL_SECTION,
     {
       id: 'profile',
       number: '01',
@@ -69,7 +107,7 @@ export function onboardingCatalogFor(
     const title = item.category.trim().replace(/^\d+\s+/, '') || 'Documents'
     let section = sections.find((s) => s.title === title)
     if (!section) {
-      const number = String(sections.length + 1).padStart(2, '0')
+      const number = String(sections.length).padStart(2, '0')
       section = { id: `docs_${sections.length}`, number, title, folderTitle: `${number} ${title}`, description: '', questions: [] }
       sections.push(section)
     }
@@ -81,7 +119,7 @@ export function onboardingCatalogFor(
       documentType: key,
     })
   }
-  const number = String(sections.length + 1).padStart(2, '0')
+  const number = String(sections.length).padStart(2, '0')
   sections.push({
     id: 'additional',
     number,

@@ -246,9 +246,11 @@ function buildOverviewFromChecklist(input: {
 
   // Questionnaire answers (text, URLs, lists). Files are listed below from the checklist.
   const answerSections: OverviewSection[] = []
+  // URL fields saved as links are shown in Links, not repeated as answers.
+  const linkedKeys = new Set(checklist.links.filter((item) => item.files.length > 0).map((item) => item.questionKey))
   for (const cat of input.catalog) {
     const fields: OverviewField[] = cat.questions
-      .filter((q) => q.type !== 'file')
+      .filter((q) => q.type !== 'file' && !(q.type === 'url' && linkedKeys.has(q.key)))
       .map((q) => {
         const text = formatOnboardingAnswer(answers[q.key], q.type)
         return {
@@ -265,7 +267,7 @@ function buildOverviewFromChecklist(input: {
     answerSections.push({
       id: `answers_${cat.id}`,
       title: cat.title,
-      folderTitle: `${cat.number} ${cat.title} — answers`,
+      folderTitle: `${cat.number ? `${cat.number} ` : ''}${cat.title} — answers`,
       fields,
       answeredCount: fields.filter((f) => f.hasValue).length,
       totalCount: fields.length,

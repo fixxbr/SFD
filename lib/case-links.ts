@@ -137,7 +137,7 @@ export async function updateCaseLink(input: {
   return created
 }
 
-export async function deleteCaseLink(input: { documentId: string; actorId: string }) {
+export async function deleteCaseLink(input: { documentId: string; actorId: string | null }) {
   await loadActiveLink(input.documentId)
   return archiveCaseDocument({ documentId: input.documentId, actorId: input.actorId, reason: 'Link removed' })
 }
