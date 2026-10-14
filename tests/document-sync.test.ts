@@ -64,13 +64,14 @@ describe('one checklist for Overview, Documents and Request Documents', () => {
       const counts = countChecklist(checklist)
 
       const slotKeys = template.items
-        .filter((i) => !isAdditionalEvidenceKey(i.documentKey) && !isLinkRequestKey(i.documentKey))
+        .filter((i) => !isLinkRequestKey(i.documentKey))
         .map((i) => i.documentKey)
       // Every document on the visa list counts; nothing is marked mandatory or optional.
       expect(requirementItems(checklist).map((i) => i.questionKey)).toEqual(slotKeys)
       expect(counts.required).toBe(slotKeys.length)
-      expect(counts.submitted).toBe(1)
-      expect(counts.missing).toBe(slotKeys.length - 1)
+      // The extra "other supporting" file lands in the list's Additional evidence item.
+      expect(counts.submitted).toBe(2)
+      expect(counts.missing).toBe(slotKeys.length - 2)
       expect(missingChecklistItems(checklist)).toHaveLength(counts.missing)
 
       // Archived versions are hidden; rejected files stay visible (and are counted) everywhere.
@@ -115,7 +116,7 @@ describe('one checklist for Overview, Documents and Request Documents', () => {
     ]
     const checklist = buildChecklist([doc('lca', 'custom_lca_1')], defs, { templateItems: h1b.items })
     const counts = countChecklist(checklist)
-    const base = h1b.items.filter((i) => !isAdditionalEvidenceKey(i.documentKey)).length
+    const base = h1b.items.length
     expect(counts.required).toBe(base + 1)
     expect(counts.submitted).toBe(1)
     expect(counts.linksPending).toBe(1)

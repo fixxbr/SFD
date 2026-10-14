@@ -130,7 +130,6 @@ export function isReceivedChecklistItem(item: ChecklistItem) {
 
 /** Not yet uploaded (no content on file). Catch-all “other” slots are never “missing”. */
 export function isMissingChecklistItem(item: ChecklistItem) {
-  if (isAdditionalEvidenceKey(item.questionKey)) return false
   return item.status === 'MISSING' || !(item.files?.length)
 }
 
@@ -273,7 +272,9 @@ function buildTemplateFolders(
             canonicalDocumentLabel(key, customDefs),
           documentType: key,
           kind: 'file',
-          requirement: !isAdditionalEvidenceKey(key),
+          // Every item on the visa list counts, the "additional evidence" item included,
+          // so the number of documents always equals the rows shown everywhere.
+          requirement: true,
         },
         versions,
       ),

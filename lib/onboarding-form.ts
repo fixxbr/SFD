@@ -85,7 +85,31 @@ export function onboardingCatalogFor(
   visaType: string | null | undefined,
   templateItems: OnboardingTemplateItem[],
 ): OnboardingCategory[] {
-  if (String(visaType) === 'O_1A' || !templateItems.length) return [PERSONAL_SECTION, ...O1_CATEGORIES]
+  if (!templateItems.length) return [PERSONAL_SECTION, ...O1_CATEGORIES]
+  const ordered = [...templateItems].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+  const asQuestion = (item: OnboardingTemplateItem): OnboardingQuestion => ({
+    key: item.documentKey.trim(),
+    label: item.documentName,
+    help: item.instructions ?? undefined,
+    type: isLinkRequestKey(item.documentKey) ? 'url' : 'file',
+    documentType: item.documentKey.trim(),
+  })
+
+  if (String(visaType) === 'O_1A') {
+    // O-1A keeps its questionnaire (lists of awards, judging, …), but its upload slots are the
+    // visa list's own items, matched by section number, so names match Documents everywhere.
+    const used = new Set<string>()
+    const sections = O1_CATEGORIES.map((cat) => {
+      const docs = ordered.filter((i) => i.category.trim().startsWith(`${cat.number} `))
+      docs.forEach((i) => used.add(i.documentKey))
+      return { ...cat, questions: [...cat.questions.filter((q) => q.type !== 'file'), ...docs.map(asQuestion)] }
+    })
+    const rest = ordered.filter((i) => !used.has(i.documentKey))
+    if (rest.length) {
+      sections.push({ id: 'more_documents', number: '', title: 'More Documents', folderTitle: 'More Documents', description: '', questions: rest.map(asQuestion) })
+    }
+    return [PERSONAL_SECTION, ...sections]
+  }
 
   const sections: OnboardingCategory[] = [
     PERSONAL_SECTION,
@@ -98,12 +122,16 @@ export function onboardingCatalogFor(
       questions: PROFILE_QUESTIONS,
     },
   ]
-  const ordered = [...templateItems].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
   const seen = new Set<string>()
+  let catchAll: OnboardingTemplateItem | null = null
   for (const item of ordered) {
     const key = item.documentKey.trim()
-    if (!key || seen.has(key) || isAdditionalEvidenceKey(key)) continue
+    if (!key || seen.has(key)) continue
     seen.add(key)
+    if (isAdditionalEvidenceKey(key)) {
+      catchAll = item
+      continue
+    }
     const title = item.category.trim().replace(/^\d+\s+/, '') || 'Documents'
     let section = sections.find((s) => s.title === title)
     if (!section) {
@@ -111,13 +139,7 @@ export function onboardingCatalogFor(
       section = { id: `docs_${sections.length}`, number, title, folderTitle: `${number} ${title}`, description: '', questions: [] }
       sections.push(section)
     }
-    section.questions.push({
-      key,
-      label: item.documentName,
-      help: item.instructions ?? undefined,
-      type: isLinkRequestKey(key) ? 'url' : 'file',
-      documentType: key,
-    })
+    section.questions.push(asQuestion(item))
   }
   const number = String(sections.length).padStart(2, '0')
   sections.push({
@@ -129,7 +151,10 @@ export function onboardingCatalogFor(
     questions: [
       { key: 'additional_notes', label: 'Anything else we should know', type: 'textarea' },
       { key: 'additional_urls', label: 'Additional URLs', type: 'url' },
-      { key: 'additional_files', label: 'Additional supporting files', type: 'file', documentType: 'additional_evidence' },
+      // Same name and key as the visa list's "additional" item.
+      catchAll
+        ? asQuestion(catchAll)
+        : { key: 'additional_files', label: 'Additional supporting files', type: 'file', documentType: 'additional_evidence' },
     ],
   })
   return sections

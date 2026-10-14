@@ -11,19 +11,26 @@ describe('every visa type gets an onboarding form for its own visa', () => {
   for (const template of SEED_VISA_TEMPLATES) {
     it(`${template.visaTypeCode}: asks for exactly that visa's documents`, () => {
       const catalog = onboardingCatalogFor(template.visaTypeCode, template.items)
+      const fileAndUrl = catalog.flatMap((c) => c.questions).filter((q) => q.type === 'file' || q.type === 'url')
       if (template.visaTypeCode === 'O_1A') {
-        expect(catalog.slice(1)).toEqual(O1_CATEGORIES)
+        // O-1A keeps its questionnaire, but upload slots are exactly the O-1A list (same names).
+        const uploads = fileAndUrl.filter((q) => !['additional_urls', 'linkedin_url', 'scholar_url', 'speaking_urls'].includes(q.key))
+        expect(uploads.map((q) => q.label)).toEqual(template.items.map((i) => i.documentName))
+        expect(catalog.some((c) => c.questions.some((q) => q.key === 'awards_list'))).toBe(true)
         return
       }
-      const visaKeys = template.items
-        .map((i) => i.documentKey)
-        .filter((k) => !isAdditionalEvidenceKey(k))
+      // Every visa-list document appears on the form with the same name.
+      for (const item of template.items) {
+        expect(fileAndUrl.find((q) => q.key === item.documentKey)?.label, item.documentKey).toBe(item.documentName)
+      }
+      const visaKeys = template.items.map((i) => i.documentKey)
       const asked = catalog.flatMap((c) => c.questions.map((q) => q.key))
       for (const key of visaKeys) expect(asked, key).toContain(key)
       // Sections are this visa's own categories (plus general info and additional), never the O-1A form's.
       const visaCategories = new Set(template.items.map((i) => i.category.replace(/^\d+\s+/, '')))
       for (const c of catalog) {
         if (c.id === 'personal' || c.id === 'profile' || c.id === 'additional') continue
+        if (c.questions.every((q) => q.type !== 'file' && q.type !== 'url')) continue
         expect(visaCategories.has(c.title), c.title).toBe(true)
       }
       expect(catalog.map((c) => c.title).join(' | ')).not.toMatch(/Proposed O-1/)
@@ -32,7 +39,6 @@ describe('every visa type gets an onboarding form for its own visa', () => {
         if (isLinkRequestKey(q.key)) expect(q.type).toBe('url')
       }
       const files = onboardingFileKeys(catalog)
-      expect(files.has('additional_files')).toBe(true)
       expect(files.has('award_certificates')).toBe(false)
     })
   }
