@@ -535,7 +535,7 @@ export function CandidateProfile({
               />
               <p className="mt-3 text-2xl font-semibold tabular-nums text-[#0C2340]">
                 {docCounts.submitted} / {docCounts.required}
-                <span className="ml-2 text-sm font-normal text-[#64748B]">required documents submitted</span>
+                <span className="ml-2 text-sm font-normal text-[#64748B]">documents submitted</span>
               </p>
               <button type="button" className={`${btn} mt-3`} onClick={() => selectTab('documents')}>
                 Open Documents

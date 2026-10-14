@@ -2,10 +2,11 @@ import type { Checklist, ChecklistItem } from '@/lib/documents-checklist'
 import { isMissingChecklistItem } from '@/lib/documents-checklist'
 
 export type DocumentCounts = {
-  /** Requirement slots for this case (visa template + requested/custom documents). */
+  /** Documents on this case's list (visa list + requested/custom documents). */
   required: number
-  /** Requirement slots with at least one file on record. */
+  /** Listed documents with at least one file on record. */
   submitted: number
+  /** Listed documents with no file yet. Candidates can send them any time, as often as needed. */
   missing: number
   underReview: number
   accepted: number
@@ -29,7 +30,7 @@ const SUBMITTED: Array<ChecklistItem['status']> = [
   'PARTIALLY_UPLOADED',
 ]
 
-/** Requirement slots only — catch-all, orphan and evidence-record folders never count as “required”. */
+/** Documents on the case's list — catch-all, orphan and evidence-record folders excluded. */
 export function requirementItems(checklist: Pick<Checklist, 'folders'>): ChecklistItem[] {
   return checklist.folders.flatMap((f) => f.items).filter((item) => item.requirement === true && item.kind !== 'link')
 }

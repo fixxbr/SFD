@@ -164,7 +164,6 @@ export function VisaTemplateManager() {
                   </p>
                   <p className="text-xs text-[#5B6B7C]">
                     {item.category}
-                    {item.defaultRequired ? ' · Required' : ' · Optional'}
                   </p>
                   {item.instructions && <p className="text-xs text-[#5B6B7C]">{item.instructions}</p>}
                 </div>

@@ -99,7 +99,6 @@ export function DocumentsBlock({
   const [statusFilter, setStatusFilter] = useState('')
   const [addOpen, setAddOpen] = useState(false)
   const [newName, setNewName] = useState('')
-  const [newRequired, setNewRequired] = useState(true)
   const folders = (checklist.folders ?? []).filter((folder: any) => {
     const extra = folder.id === 'profile_links' || folder.id === 'custom' || folder.id === 'extra' || folder.id === 'other_supporting'
     if (!extra) return true
@@ -185,7 +184,6 @@ export function DocumentsBlock({
           action: 'add-custom-requirement',
           caseId: currentCase.id,
           documentName: name,
-          required: newRequired,
           documentKey: key,
         }),
       })
@@ -297,7 +295,7 @@ export function DocumentsBlock({
       {addOpen && (
         <form
           onSubmit={addRequirement}
-          className="grid gap-2 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-3 sm:grid-cols-[1fr_auto_auto]"
+          className="grid gap-2 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] p-3 sm:grid-cols-[1fr_auto]"
         >
           <input
             className={input}
@@ -306,10 +304,6 @@ export function DocumentsBlock({
             onChange={(e) => setNewName(e.target.value)}
             required
           />
-          <label className="flex items-center gap-2 text-xs text-[#64748B]">
-            <input type="checkbox" checked={newRequired} onChange={(e) => setNewRequired(e.target.checked)} />
-            Required
-          </label>
           <button className={primary} disabled={busyId === 'add'}>
             {busyId === 'add' ? 'Saving…' : 'Save'}
           </button>

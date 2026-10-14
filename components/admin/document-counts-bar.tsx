@@ -13,7 +13,7 @@ export function DocumentCountsBar({
 }) {
   return (
     <dl className="flex flex-wrap gap-x-4 gap-y-1 text-sm" data-testid="document-counts">
-      <Stat label="Required" value={counts.required} />
+      <Stat label="Documents" value={counts.required} />
       <Stat label="Submitted" value={counts.submitted} />
       <div className="flex gap-1">
         <dt className="text-[#64748B]">Missing:</dt>

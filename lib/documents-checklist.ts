@@ -51,7 +51,7 @@ export type ChecklistItem = {
   files: DocumentVersion[]
   versions: DocumentVersion[]
   kind?: 'file' | 'link'
-  /** Counts toward Required / Missing. False for catch-all, orphan and evidence-record slots. */
+  /** A checklist slot (visa list, requested or custom). False for catch-all, orphan and evidence-record slots. */
   requirement?: boolean
 }
 

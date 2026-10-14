@@ -63,13 +63,14 @@ describe('one checklist for Overview, Documents and Request Documents', () => {
       const checklist = buildChecklist(documents, [], { templateItems: template.items })
       const counts = countChecklist(checklist)
 
-      const requiredKeys = template.items
+      const slotKeys = template.items
         .filter((i) => !isAdditionalEvidenceKey(i.documentKey) && !isLinkRequestKey(i.documentKey))
         .map((i) => i.documentKey)
-      expect(requirementItems(checklist).map((i) => i.questionKey)).toEqual(requiredKeys)
-      expect(counts.required).toBe(requiredKeys.length)
+      // Every document on the visa list counts; nothing is marked mandatory or optional.
+      expect(requirementItems(checklist).map((i) => i.questionKey)).toEqual(slotKeys)
+      expect(counts.required).toBe(slotKeys.length)
       expect(counts.submitted).toBe(1)
-      expect(counts.missing).toBe(requiredKeys.length - 1)
+      expect(counts.missing).toBe(slotKeys.length - 1)
       expect(missingChecklistItems(checklist)).toHaveLength(counts.missing)
 
       // Archived versions are hidden; rejected files stay visible (and are counted) everywhere.
@@ -136,6 +137,15 @@ describe('one checklist for Overview, Documents and Request Documents', () => {
   })
 })
 
+describe('document lists', () => {
+  it('every visa lists passport and gives acceptable-document guidance on every item', () => {
+    for (const t of SEED_VISA_TEMPLATES) {
+      expect(t.items.some((i) => i.documentKey === 'passport'), t.visaTypeCode).toBe(true)
+      for (const i of t.items) expect(i.instructions?.length, `${t.visaTypeCode}:${i.documentKey}`).toBeGreaterThan(10)
+    }
+  })
+})
+
 describe('links accept URLs only', () => {
   it('rejects file names, file schemes and invalid entries', () => {
     for (const value of ['resume.pdf', 'Passport.JPG', 'letter.docx', 'C:\\scans\\cv.jpeg', 'file:///tmp/a.pdf', 'data:text/plain,hi']) {
@@ -188,7 +198,7 @@ describe('document uploads accept PDF, DOC, DOCX, JPG and JPEG only', () => {
   })
 })
 
-describe('recommended documents (approved, optional)', () => {
+describe('recommended documents (approved)', () => {
   const keysFor = (code: string) => SEED_VISA_TEMPLATES.find((t) => t.visaTypeCode === code)!.items
   it.each([
     ['O_1A', ['recommendation_letters', 'advisory_opinion', 'contract', 'itinerary']],
@@ -200,13 +210,9 @@ describe('recommended documents (approved, optional)', () => {
     ['L_1B', ['i94', 'current_visa', 'i797', 'financial_statements', 'new_office_docs', 'blanket_l', 'training_records', 'recommendation_letters']],
     ['EB_5', ['capital_transfer', 'subscription_agreement', 'civil_documents', 'recommendation_letters']],
     ['OTHER', ['recommendation_letters']],
-  ])('%s has the approved additions, all optional', (code, keys) => {
+  ])('%s has the approved additions', (code, keys) => {
     const items = keysFor(code)
-    for (const key of keys) {
-      const item = items.find((i) => i.documentKey === key)
-      expect(item, `${code}:${key}`).toBeTruthy()
-      expect(item!.defaultRequired).toBe(false)
-    }
+    for (const key of keys) expect(items.find((i) => i.documentKey === key), `${code}:${key}`).toBeTruthy()
     expect(new Set(items.map((i) => i.documentKey)).size).toBe(items.length)
   })
 
