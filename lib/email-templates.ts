@@ -1,6 +1,6 @@
 import { BRAND_NAME } from '@/lib/brand'
 import { formatCents } from '@/lib/payments'
-import { O1_CATEGORIES } from '@/lib/onboarding-catalog'
+import { SEED_VISA_TEMPLATES } from '@/lib/visa-template-seed-data'
 
 export type EmailTemplateKey =
   | 'WELCOME'
@@ -36,9 +36,18 @@ export type MergeVars = {
   paymentNumber: string
   paymentLink?: string
   documentLink?: string
+  /** Bulleted document categories for the case's own visa type. */
+  documentCategories: string
 }
 
-const DOC_CATEGORIES = O1_CATEGORIES.map((c) => `- ${c.title}`).join('\n')
+/** Category names for a visa: the live template's when given, else the built-in list for that visa. */
+export function documentCategoriesText(visaTypeCode?: string | null, categories?: string[] | null): string {
+  const fromSeed = SEED_VISA_TEMPLATES.find((t) => t.visaTypeCode === visaTypeCode)?.items.map((i) => i.category)
+  const list = [...new Set((categories?.length ? categories : fromSeed) ?? [])]
+    .map((c) => c.replace(/^\d+\s+/, '').trim())
+    .filter(Boolean)
+  return list.length ? list.map((c) => `- ${c}`).join('\n') : '- Documents listed on your secure upload page'
+}
 
 export const EMAIL_TEMPLATES: Array<{
   key: EmailTemplateKey
@@ -47,6 +56,8 @@ export const EMAIL_TEMPLATES: Array<{
   body: string
   ctaLabel?: string
   ctaVar?: 'documentLink' | 'paymentLink'
+  /** Only offered for these visa types (all visa types when omitted). */
+  visaTypes?: string[]
 }> = [
   {
     key: 'WELCOME',
@@ -78,6 +89,7 @@ clients@afterstem.ai`,
   {
     key: 'O1_PROCESS_STARTED',
     label: 'O-1 Process Started',
+    visaTypes: ['O_1A'],
     subject: `${BRAND_NAME} — your O-1 journey has started`,
     body: `Hi {{Client Name}},
 
@@ -109,11 +121,11 @@ clients@afterstem.ai`,
   },
   {
     key: 'DOCUMENTATION_REQUEST',
-    label: 'O-1 Documentation Request',
-    subject: `${BRAND_NAME} — complete your O-1 documentation`,
+    label: 'Documentation Request',
+    subject: `${BRAND_NAME} — complete your {{Visa Type}} documentation`,
     body: `Hi {{Client Name}},
 
-Please complete your O-1 documentation request.
+Please complete your {{Visa Type}} documentation request.
 
 Candidate ID:
 {{Candidate ID}}
@@ -121,17 +133,17 @@ Candidate ID:
 Visa Type:
 {{Visa Type}}
 
-Use the button below to submit documents. Each item has its own upload field — including resume, passport, I-94, and the remaining basic documents.
+Use the button below to submit documents. Each item has its own upload field.
 
 Documentation we may request:
 
-${DOC_CATEGORIES}
+{{Document Categories}}
 
-[Complete O-1A Documentation]
+[Complete Your Documentation]
 {{Document Link}}
 
 — ${BRAND_NAME} Team`,
-    ctaLabel: 'Complete O-1A Documentation',
+    ctaLabel: 'Complete Your Documentation',
     ctaVar: 'documentLink',
   },
   {
@@ -456,6 +468,7 @@ export function mergeTemplate(template: string, vars: MergeVars) {
     .replaceAll('{{Payment Number}}', vars.paymentNumber)
     .replaceAll('{{Payment Link}}', vars.paymentLink || '[payment link pending]')
     .replaceAll('{{Document Link}}', vars.documentLink || '[document link pending]')
+    .replaceAll('{{Document Categories}}', vars.documentCategories)
 }
 
 export function buildMergeVars(input: {
@@ -470,6 +483,8 @@ export function buildMergeVars(input: {
   currency?: string
   paymentLink?: string
   documentLink?: string
+  visaTypeCode?: string | null
+  documentCategories?: string[] | null
 }): MergeVars {
   const currency = (input.currency || 'usd').toUpperCase()
   return {
@@ -483,7 +498,13 @@ export function buildMergeVars(input: {
     paymentNumber: String(input.paymentNumber ?? ''),
     paymentLink: input.paymentLink,
     documentLink: input.documentLink,
+    documentCategories: documentCategoriesText(input.visaTypeCode, input.documentCategories),
   }
+}
+
+/** Catalog templates offered for a case of this visa type. */
+export function templatesForVisa(visaType?: string | null) {
+  return EMAIL_TEMPLATES.filter((t) => !t.visaTypes || t.visaTypes.includes(String(visaType ?? '')))
 }
 
 export function gmailComposeUrl(to: string, subject: string, body: string) {

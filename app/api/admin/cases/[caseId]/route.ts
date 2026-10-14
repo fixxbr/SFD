@@ -4,7 +4,7 @@ import { requirePermission } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { handleApiError, assertSameOrigin, jsonError } from '@/lib/http'
 import { ActivityType, audit, logActivity } from '@/lib/activity'
-import { createOnboardingInvite } from '@/lib/onboarding'
+import { createOnboardingInvite, hasOnboardingForm, ONBOARDING_NOT_AVAILABLE } from '@/lib/onboarding'
 import { canReadyToFile, formatCents, validateInstallments } from '@/lib/payments'
 import { createAccessLink } from '@/lib/client-access'
 import { assertCanAccessCase } from '@/lib/lawyer-access'
@@ -242,6 +242,7 @@ export async function POST(request: Request, ctx: Ctx) {
     if (!record) return jsonError('Case not found', 404)
 
     if (body.action === 'invite') {
+      if (!hasOnboardingForm(record.visaType)) return jsonError(ONBOARDING_NOT_AVAILABLE, 400)
       const result = await createOnboardingInvite({
         candidateId: record.candidateId,
         caseId: record.id,

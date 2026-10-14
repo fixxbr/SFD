@@ -19,7 +19,7 @@ export function O1OnboardingForm({ token }: { token: string }) {
 
   useEffect(() => {
     let cancelled = false
-    fetch(`/api/onboarding/${token}`)
+    fetch(`/api/onboarding/${token}`, { cache: 'no-store' })
       .then(async (res) => {
         const json = await res.json()
         if (!res.ok) throw new Error(json.error ?? 'Unable to open this link')

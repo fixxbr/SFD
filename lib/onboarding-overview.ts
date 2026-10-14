@@ -231,6 +231,7 @@ function buildOverviewFromChecklist(input: {
   caseStatus?: string | null
   hasInvite?: boolean
   reviews?: Record<string, { status?: string; note?: string }> | null
+  onboardingForm: boolean
 }) {
   const { answers, checklist } = input
   const hasAnswerProgress = answerHasProgress(answers)
@@ -264,7 +265,8 @@ function buildOverviewFromChecklist(input: {
     answerSections.push({
       id: `answers_${cat.id}`,
       title: cat.title,
-      folderTitle: `${cat.number} ${cat.title} — answers`,
+      // Answers saved before a visa change stay readable, clearly marked as the O-1A form.
+      folderTitle: input.onboardingForm ? `${cat.number} ${cat.title} — answers` : `${cat.title} — earlier O-1A form answers`,
       fields,
       answeredCount: fields.filter((f) => f.hasValue).length,
       totalCount: fields.length,
@@ -305,9 +307,11 @@ function buildOverviewFromChecklist(input: {
     sections: [...answerSections, ...documentSections],
     hasAnswerProgress,
     hasDocumentProgress,
-    showSendInvite: status === 'NOT_STARTED',
-    showResendInvite: status === 'INVITED' || status === 'IN_PROGRESS' || status === 'MORE_INFORMATION_REQUIRED',
-    statusHint: overviewStatusHint(status),
+    showSendInvite: input.onboardingForm && status === 'NOT_STARTED',
+    showResendInvite:
+      input.onboardingForm &&
+      (status === 'INVITED' || status === 'IN_PROGRESS' || status === 'MORE_INFORMATION_REQUIRED'),
+    statusHint: input.onboardingForm ? overviewStatusHint(status) : '',
   }
 }
 
@@ -325,6 +329,8 @@ export function buildOnboardingOverview(input: {
    * and links are left to the Links section.
    */
   checklist?: Checklist | null
+  /** False for visa types without the (O-1A) onboarding form: no invite actions or onboarding hints. */
+  onboardingForm?: boolean
 }): {
   status: OnboardingDisplayStatus
   sections: OverviewSection[]
@@ -335,7 +341,9 @@ export function buildOnboardingOverview(input: {
   statusHint: string
 } {
   const answers = (input.answers ?? {}) as Record<string, unknown>
-  if (input.checklist) return buildOverviewFromChecklist({ ...input, answers, checklist: input.checklist })
+  if (input.checklist) {
+    return buildOverviewFromChecklist({ ...input, answers, checklist: input.checklist, onboardingForm: input.onboardingForm !== false })
+  }
   const catalogDocs = activeDocuments(input.documents ?? [])
   const evidenceProgress = (input.documents ?? []).some(
     (d) =>

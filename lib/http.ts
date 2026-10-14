@@ -73,6 +73,7 @@ export function handleApiError(error: unknown) {
       'Enter a complete URL',
       'This link is already saved',
       'Links must be',
+      'The onboarding form is only for O-1A',
       'Add a description for each file',
       'Description must be at least',
       'Description must be 1000',

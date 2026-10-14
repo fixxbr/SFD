@@ -4,8 +4,18 @@ import { randomToken, sha256 } from '@/lib/crypto'
 import { appUrl } from '@/lib/http'
 import { BRAND_NAME } from '@/lib/brand'
 import { sendClientEmail } from '@/lib/email'
+import { hasOnboardingForm, ONBOARDING_NOT_AVAILABLE } from '@/lib/onboarding-visa'
 
 const INVITE_TTL_MS = 30 * 24 * 60 * 60 * 1000
+
+export { hasOnboardingForm, ONBOARDING_FORM_VISA_TYPES, ONBOARDING_NOT_AVAILABLE } from '@/lib/onboarding-visa'
+
+export class OnboardingNotAvailableError extends Error {
+  status = 400
+  constructor() {
+    super(ONBOARDING_NOT_AVAILABLE)
+  }
+}
 
 export async function createOnboardingInvite(input: {
   candidateId: string
@@ -14,6 +24,8 @@ export async function createOnboardingInvite(input: {
   sendEmail?: boolean
   recipientEmail: string
 }) {
+  const caseRow = await prisma.case.findUnique({ where: { id: input.caseId }, select: { visaType: true } })
+  if (!caseRow || !hasOnboardingForm(caseRow.visaType)) throw new OnboardingNotAvailableError()
   const token = randomToken(32)
   const invite = await prisma.onboardingInvite.create({
     data: {
@@ -77,7 +89,19 @@ export async function resolveInvite(token: string) {
   })
   if (!invite || invite.revokedAt) return null
   if (invite.expiresAt.getTime() < Date.now()) return null
+  // An invite stops working if the case is no longer O-1A (e.g. visa type changed).
+  if (!hasOnboardingForm(invite.case.visaType)) return null
   return invite
+}
+
+/** True when the link is otherwise valid but its case is not O-1A (so the form is not offered). */
+export async function isInviteForOtherVisa(token: string): Promise<boolean> {
+  const invite = await prisma.onboardingInvite.findUnique({
+    where: { tokenHash: sha256(token) },
+    select: { revokedAt: true, expiresAt: true, case: { select: { visaType: true } } },
+  })
+  if (!invite || invite.revokedAt || invite.expiresAt.getTime() < Date.now()) return false
+  return !hasOnboardingForm(invite.case.visaType)
 }
 
 export async function getOrCreateDraft(caseId: string, candidateId: string) {

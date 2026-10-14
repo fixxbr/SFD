@@ -35,6 +35,8 @@ export type CatalogRenderInput = {
   documentLink?: string | null
   personalNote?: string | null
   missingDocumentLabels?: string[]
+  /** Category names from the case's visa template (Documentation Request email). */
+  documentCategories?: string[]
   subjectOverride?: string
   textOverride?: string
 }
@@ -119,6 +121,8 @@ export function renderCatalogEmail(input: CatalogRenderInput): {
     currency: input.currency ?? undefined,
     paymentLink: input.paymentLink ?? undefined,
     documentLink: input.documentLink ?? undefined,
+    visaTypeCode: input.visaType ?? null,
+    documentCategories: input.documentCategories ?? null,
   })
 
   let text = input.textOverride?.trim() || mergeTemplate(tmpl.body, vars)

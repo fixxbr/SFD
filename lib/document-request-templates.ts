@@ -32,7 +32,7 @@ const FULL_HTML = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Complete Your O-1 Documentation | Afterstem</title>
+<title>Complete Your {{Visa Type}} Documentation | Afterstem</title>
 </head>
 <body style="margin:0;padding:0;background:#edf3f6;font-family:Arial,Helvetica,sans-serif;color:#17324d;">
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#edf3f6;">
@@ -262,8 +262,8 @@ export const DOC_REQUEST_TEMPLATES: Record<
   { subject: string; html: string; label: string }
 > = {
   FULL_O1: {
-    label: 'Complete O-1 Documentation',
-    subject: 'Complete Your O-1 Documentation | Afterstem.ai',
+    label: 'Complete Visa Documentation',
+    subject: 'Complete Your Visa Documentation | Afterstem.ai',
     html: FULL_HTML,
   },
   CUSTOM: {

@@ -14,6 +14,7 @@ import { questionByKey } from '@/lib/onboarding-catalog'
 import { buildChecklist, type Checklist, type VisaTemplateSlot } from '@/lib/documents-checklist'
 import { defsFromRequestItems, OTHER_SUPPORTING_DOCUMENT_KEY } from '@/lib/document-keys'
 import { buildOnboardingOverview } from '@/lib/onboarding-overview'
+import { hasOnboardingForm } from '@/lib/onboarding-visa'
 import { DocumentPreviewModal } from '@/components/admin/document-preview-modal'
 import { DocumentFileName } from '@/components/admin/document-file-name'
 import { formatUrlForDisplay } from '@/lib/document-links'
@@ -22,7 +23,7 @@ import { DocumentCountsBar } from '@/components/admin/document-counts-bar'
 import { LinksPanel } from '@/components/admin/links-panel'
 import { can } from '@/lib/rbac'
 import {
-  EMAIL_TEMPLATES,
+  templatesForVisa,
   mergeTemplate,
   buildMergeVars,
   templateByKey,
@@ -62,7 +63,6 @@ const TABS = CANDIDATE_PROFILE_TABS
 
 const MODAL_HASH: Record<string, ModalKey> = {
   mail: 'email',
-  docs: 'docs',
   note: 'note',
   edit: 'edit',
 }
@@ -247,8 +247,15 @@ export function CandidateProfile({
 
   useEffect(() => {
     if (!hash) return
+    // Old "#docs" links open the visa-specific Request Documents section,
+    // not the legacy pop-up that always listed O-1 documents.
+    if (hash === 'docs') {
+      selectTab('documents', 'doc-requests')
+      return
+    }
     const modalKey = MODAL_HASH[hash]
     if (modalKey) setModal(modalKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hash])
 
   useEffect(() => {
@@ -686,7 +693,10 @@ export function CandidateProfile({
           )}
 
           {!limited && (
-            <Section id="onboarding" title="Onboarding / Submitted Information">
+            <Section
+              id="onboarding"
+              title={hasOnboardingForm(currentCase?.visaType) ? 'Onboarding / Submitted Information' : 'Submitted Documents'}
+            >
               <OnboardingBlock
                 currentCase={currentCase}
                 checklist={checklist}
@@ -964,6 +974,7 @@ export function CandidateProfile({
           currentCase={currentCase}
           defaultTemplate={emailTemplate}
           missingDocumentLabels={missingItems.map((i) => i.label)}
+          documentCategories={[...new Set(templateItems.map((item) => item.category))]}
           onClose={() => {
             setEmailTemplate(undefined)
             setModal(null)
@@ -1253,6 +1264,7 @@ export function EmailComposer({
   currentCase,
   defaultTemplate,
   missingDocumentLabels,
+  documentCategories,
   onClose,
   onDone,
 }: {
@@ -1260,10 +1272,14 @@ export function EmailComposer({
   currentCase: any
   defaultTemplate?: EmailTemplateKey
   missingDocumentLabels?: string[]
+  /** Category names from this case's visa template (Documentation Request email). */
+  documentCategories?: string[]
   onClose: () => void
   onDone?: () => void
 }) {
   const next = (currentCase?.payments ?? []).find((p: any) => p.status !== 'PAID')
+  // Only templates for this case's visa type (e.g. "O-1 Process Started" is O-1A only).
+  const visaTemplates = templatesForVisa(currentCase?.visaType)
   const vars = buildMergeVars({
     fullLegalName: candidate.fullLegalName,
     candidateNumber: candidate.candidateNumber,
@@ -1275,8 +1291,10 @@ export function EmailComposer({
     paymentNumber: next?.installmentNumber,
     currency: currentCase?.currency,
     paymentLink: next?.paymentUrl,
+    visaTypeCode: currentCase?.visaType,
+    documentCategories,
   })
-  const first = templateByKey(defaultTemplate ?? 'CUSTOM')
+  const first = visaTemplates.find((t) => t.key === defaultTemplate) ?? templateByKey('CUSTOM')
   const initialBody = (() => {
     let body = mergeTemplate(first.body, vars)
     if (first.key === 'MISSING_DOCUMENT_REMINDER' && missingDocumentLabels?.length) {
@@ -1314,6 +1332,7 @@ export function EmailComposer({
         paymentLink: next?.paymentUrl,
         personalNote: personalNote || null,
         missingDocumentLabels,
+        documentCategories,
         subjectOverride: subject,
         textOverride: text,
       }),
@@ -1479,7 +1498,7 @@ export function EmailComposer({
         <label className="block text-xs font-medium text-[#5B6B7C]">
           Template
           <select value={key} onChange={(e) => apply(e.target.value as EmailTemplateKey)} className={`${input} mt-1`} disabled={busy}>
-            {EMAIL_TEMPLATES.map((t) => (
+            {visaTemplates.map((t) => (
               <option key={t.key} value={t.key}>
                 {t.label}
               </option>
@@ -1840,6 +1859,7 @@ function OnboardingBlock({
       hasInvite: Boolean(currentCase.onboardingInvites?.length),
       reviews,
       checklist,
+      onboardingForm: hasOnboardingForm(currentCase.visaType),
     })
   }, [currentCase, checklist])
 
@@ -1880,7 +1900,13 @@ function OnboardingBlock({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <StatusBadge status={overview.status} />
+        {hasOnboardingForm(currentCase.visaType) ? (
+          <StatusBadge status={overview.status} />
+        ) : (
+          <span className="text-xs text-[#5B6B7C]">
+            The onboarding form is for O-1A cases only. Collect documents for this visa with Request Documents.
+          </span>
+        )}
         {!lawyerMode && overview.showSendInvite && (
           <button type="button" className={primary} disabled={inviteBusy} onClick={() => void invite(false)}>
             {inviteBusy ? 'Sending…' : 'Send onboarding invite'}
@@ -2086,9 +2112,11 @@ function ProgressBlock({ currentCase, counts, canWrite, onDone }: any) {
         <p className="mt-2">
           Docs: {counts.accepted} accepted · {counts.missing} missing · {counts.required} required · {counts.files} files
         </p>
-        <p className="mt-1 text-[#5B6B7C]">
-          Onboarding: <StatusBadge status={overviewStatus} />
-        </p>
+        {hasOnboardingForm(currentCase?.visaType) && (
+          <p className="mt-1 text-[#5B6B7C]">
+            Onboarding: <StatusBadge status={overviewStatus} />
+          </p>
+        )}
         <ul className="mt-3 space-y-1 text-xs text-[#5B6B7C]">
           {(currentCase.statusHistory ?? []).slice(0, 8).map((item: any) => (
             <li key={item.id}>{formatDateTime(item.createdAt)} — {item.fromStatus ?? '—'} → {item.toStatus}</li>

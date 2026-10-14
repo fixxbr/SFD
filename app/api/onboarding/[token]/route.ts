@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getOrCreateDraft, resolveInvite } from '@/lib/onboarding'
+import { getOrCreateDraft, isInviteForOtherVisa, resolveInvite } from '@/lib/onboarding'
 import { jsonError, handleApiError } from '@/lib/http'
 import { prisma } from '@/lib/db'
 import { ActivityType, logActivity } from '@/lib/activity'
@@ -7,11 +7,29 @@ import { O1_CATEGORIES } from '@/lib/onboarding-catalog'
 
 type Ctx = { params: Promise<{ token: string }> }
 
-export async function GET(_request: Request, ctx: Ctx) {
+/** Invite state can change (revoked, visa type changed); never let a browser reuse an old answer. */
+function noStore(res: Response) {
+  res.headers.set('Cache-Control', 'no-store')
+  return res
+}
+
+export async function GET(request: Request, ctx: Ctx) {
+  return noStore(await getInvite(request, ctx))
+}
+
+async function getInvite(_request: Request, ctx: Ctx) {
   try {
     const { token } = await ctx.params
     const invite = await resolveInvite(token)
-    if (!invite) return jsonError('This onboarding link is invalid or has expired.', 404)
+    if (!invite) {
+      if (await isInviteForOtherVisa(token)) {
+        return jsonError(
+          'This onboarding form is only for O-1A cases. Your Afterstem team will send you a document request for your visa type instead.',
+          410,
+        )
+      }
+      return jsonError('This onboarding link is invalid or has expired.', 404)
+    }
 
     if (!invite.usedAt) {
       await prisma.onboardingInvite.update({ where: { id: invite.id }, data: { usedAt: new Date() } })

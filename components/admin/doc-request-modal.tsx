@@ -204,7 +204,7 @@ export function DocRequestModal({
           <legend className="text-sm font-semibold text-[#0C2340]">Select request type</legend>
           {(
             [
-              ['FULL', 'Complete O-1 Documentation'],
+              ['FULL', 'Full Visa Document Package'],
               ['CUSTOM', 'Custom Documents'],
               ['SINGLE', 'Single Additional Document'],
             ] as const
